@@ -1,0 +1,20 @@
+# ignore node_modules everywhere
+node_modules/
+**/node_modules/
+
+# env
+.env
+.env.*
+
+# build
+build/
+dist/
+.next/
+
+# logs
+*.log
+
+# misc
+.DS_Store
+.vercel
+*.pem
