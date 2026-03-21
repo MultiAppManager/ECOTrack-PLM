@@ -1,0 +1,42 @@
+{
+  "name": "backend",
+  "version": "1.0.0",
+  "description": "Better Auth Backend API Server",
+  "main": "server.ts",
+  "directories": {
+    "lib": "lib"
+  },
+  "scripts": {
+    "dev": "tsx watch server.ts",
+    "start": "tsx server.ts",
+    "build": "tsc",
+    "migrate": "prisma migrate dev",
+    "prisma:generate": "prisma generate",
+    "test": "echo \"Error: no test specified\" && exit 1"
+  },
+  "keywords": [],
+  "author": "",
+  "license": "ISC",
+  "type": "module",
+  "dependencies": {
+    "@prisma/adapter-pg": "^5.22.0",
+    "@prisma/client": "^5.22.0",
+    "@prisma/extension-accelerate": "^2.0.2",
+    "@types/cors": "^2.8.19",
+    "@types/express": "^5.0.6",
+    "bcrypt": "^6.0.0",
+    "better-auth": "^1.4.7",
+    "cors": "^2.8.6",
+    "dotenv": "^17.2.3",
+    "express": "^5.2.1",
+    "nodemailer": "^6.10.1",
+    "zod": "^4.3.4"
+  },
+  "devDependencies": {
+    "@types/nodemailer": "^7.0.4",
+    "@types/pg": "^8.16.0",
+    "prisma": "^5.22.0",
+    "tsx": "^4.21.0",
+    "typescript": "^5"
+  }
+}
