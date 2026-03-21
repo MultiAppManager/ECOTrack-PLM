@@ -5,13 +5,14 @@ import { toast } from 'sonner'
 
 // ─── Types ─────────────────────────────────────────────────────────────────────
 type DashboardClientProps = { userName: string; userRole: string; canCreateEco: boolean }
-type EcoStatus = 'Draft' | 'Reviewed' | 'Rejected' | 'Approved'
+type EcoStatus = 'Draft' | 'Reviewed' | 'Rejected' | 'Approved' | 'Applied'
 
 type EcoRecord = {
     id: string; ecoCode: string; title: string; ecoType: string
     product: string; bom: string; productId?: string; bomId?: string
     user: string; effectiveDate: string; versionUpdate: boolean
     status: EcoStatus; changes: any
+    stageId?: string; stageStatus?: string
 }
 
 type ProductOption = { id: string; productCode: string; name: string; version: number; salePrice: number; costPrice: number }
@@ -25,6 +26,7 @@ const statusBadge: Record<string, string> = {
     Draft:    'bg-white border border-gray-300 text-gray-700',
     Reviewed: 'bg-blue-50 border border-blue-300 text-blue-700',
     Approved: 'bg-green-50 border border-green-300 text-green-700',
+    Applied:  'bg-purple-100 border border-purple-300 text-purple-700 font-bold',
     Rejected: 'bg-red-50 border border-red-300 text-red-700',
 }
 const fmtINR = (v: number | string) =>
@@ -89,6 +91,8 @@ const DashboardClient = ({ userName, userRole, canCreateEco }: DashboardClientPr
                 versionUpdate: Boolean(item.versionUpdate),
                 status: (item.status || 'Draft') as EcoStatus,
                 changes: item.changes,
+                stageId: item.stageId,
+                stageStatus: item.stageStatus,
             })))
         } catch (e: any) {
             toast.error(e.message || 'Failed to load ECO requests')
@@ -282,6 +286,45 @@ const DashboardClient = ({ userName, userRole, canCreateEco }: DashboardClientPr
                 if (selectedEco) setTimeout(() => loadVersionHistory(selectedEco), 800)
             }
         } catch (e: any) { toast.error(e.message) }
+    }
+
+    // ─── Stage advance ──────────────────────────────────────────────────────────
+    const [allStages, setAllStages] = React.useState<any[]>([])
+    const [advancingStage, setAdvancingStage] = React.useState(false)
+
+    const loadStages = React.useCallback(async () => {
+        try {
+            const r = await fetch(`${API_BASE}/api/eco-stages`, { credentials: 'include' })
+            if (r.ok) setAllStages(await r.json())
+        } catch { /* silent */ }
+    }, [API_BASE])
+
+    React.useEffect(() => { loadStages() }, [loadStages])
+
+    const advanceStage = async (ecoId: string) => {
+        setAdvancingStage(true)
+        try {
+            const res = await fetch(`${API_BASE}/api/eco-requests/${ecoId}/advance-stage`, {
+                method: 'PATCH', credentials: 'include',
+                headers: { 'Content-Type': 'application/json' },
+            })
+            const data = await res.json()
+            if (!res.ok) throw new Error(data?.error || 'Failed to advance stage')
+            const updatedStatus = data.status as EcoStatus
+            setEcoRecords(prev => prev.map(r => r.id === ecoId ? {
+                ...r,
+                status: updatedStatus,
+                stageId: data.stageId,
+                stageStatus: data.stageStatus,
+            } : r))
+            if (data.isFinalStage) {
+                toast.success('🎉 ECO Applied — new version created!')
+                if (selectedEco) setTimeout(() => loadVersionHistory(selectedEco), 800)
+            } else {
+                toast.success(`✅ Moved to stage: ${data.nextStage?.name || 'next'}`)
+            }
+        } catch (e: any) { toast.error(e.message) }
+        finally { setAdvancingStage(false) }
     }
 
     const filtered = ecoRecords.filter(r =>
@@ -591,25 +634,87 @@ const DashboardClient = ({ userName, userRole, canCreateEco }: DashboardClientPr
                 {selectedEco && (
                     <div className='rounded-2xl border-2 border-purple-200 shadow-sm overflow-hidden bg-white'>
                         {/* Header */}
-                        <div className='px-6 py-4 border-b border-purple-100 flex items-center justify-between'>
-                            <div>
-                                <h2 className='font-bold text-[#7c3aed]'>{selectedEco.ecoCode} — {selectedEco.title}</h2>
-                                <p className='text-xs text-gray-400 mt-0.5'>{selectedEco.ecoType} · {selectedEco.user} · {selectedEco.effectiveDate || 'No effective date'}</p>
-                            </div>
-                            <div className='flex items-center gap-2'>
-                                <span className={`inline-flex items-center px-2.5 py-0.5 rounded-full text-xs font-semibold border ${statusBadge[selectedEco.status]||''}`}>
-                                    {selectedEco.status === 'Approved' ? 'Applied' : selectedEco.status}
-                                </span>
-                                {canReviewEco && selectedEco.status === 'Draft' && (
-                                    <button onClick={() => updateEcoStatus(selectedEco.id, 'Reviewed')}
-                                        className='px-3 py-1 rounded border border-purple-300 text-purple-700 text-xs font-semibold hover:bg-purple-50'>Review</button>
-                                )}
-                                {canReviewEco && selectedEco.status === 'Reviewed' && (<>
-                                    <button onClick={() => updateEcoStatus(selectedEco.id, 'Approved')}
-                                        className='px-3 py-1 rounded border border-green-300 text-green-700 text-xs font-semibold hover:bg-green-50'>Approve</button>
-                                    <button onClick={() => updateEcoStatus(selectedEco.id, 'Rejected')}
-                                        className='px-3 py-1 rounded border border-red-300 text-red-700 text-xs font-semibold hover:bg-red-50'>Reject</button>
-                                </>)}
+                        <div className='px-6 py-4 border-b border-purple-100'>
+                            {/* Stage pipeline bar */}
+                            {allStages.length > 0 && (() => {
+                                const sortedStages = [...allStages].sort((a, b) => a.sequence - b.sequence)
+                                const currentStageIdx = selectedEco.stageId
+                                    ? sortedStages.findIndex(s => s.id === selectedEco.stageId)
+                                    : -1
+                                const currentStage = currentStageIdx >= 0 ? sortedStages[currentStageIdx] : null
+                                const nextStage    = sortedStages[currentStageIdx + 1]
+                                
+                                // Determine if CURRENT stage requires approval to advance
+                                const currentApprovals: any[] = currentStage?.approvals || []
+                                const hasRequiredApproval = currentApprovals.some((a: any) => a.category === 'Required')
+                                
+                                const isFinished = selectedEco.status === 'Applied' || (currentStage?.isFinal)
+
+                                return (
+                                    <div className='mb-3 space-y-2'>
+                                        {/* Stage progress strip */}
+                                        <div className='flex items-center gap-1 flex-wrap'>
+                                            {sortedStages.map((s, i) => {
+                                                const done   = i <= currentStageIdx
+                                                const active = i === currentStageIdx
+                                                return (
+                                                    <React.Fragment key={s.id}>
+                                                        <span className={`px-2.5 py-0.5 rounded-full text-xs font-semibold border transition ${
+                                                            active  ? 'bg-purple-600 text-white border-purple-700 shadow' :
+                                                            done    ? 'bg-purple-100 text-purple-700 border-purple-200' :
+                                                                      'bg-gray-100 text-gray-400 border-gray-200'
+                                                        }`}>
+                                                            {s.isFinal && done ? '✅ ' : ''}{s.name}
+                                                        </span>
+                                                        {i < sortedStages.length - 1 && (
+                                                            <span className={`text-xs font-bold ${ i < currentStageIdx ? 'text-purple-400' : 'text-gray-300'}`}>›</span>
+                                                        )}
+                                                    </React.Fragment>
+                                                )
+                                            })}
+                                        </div>
+
+                                        {/* Approve / Validate button */}
+                                        {!isFinished && nextStage && canReviewEco && (
+                                            <button
+                                                onClick={() => advanceStage(selectedEco.id)}
+                                                disabled={advancingStage}
+                                                className={`px-4 py-1.5 rounded-lg text-xs font-bold border shadow-sm transition ${
+                                                    hasRequiredApproval
+                                                        ? 'bg-orange-500 hover:bg-orange-600 text-white border-orange-600'
+                                                        : 'bg-blue-500 hover:bg-blue-600 text-white border-blue-600'
+                                                } disabled:opacity-50`}
+                                            >
+                                                {advancingStage ? '…' : hasRequiredApproval
+                                                    ? `🔐 Approve → ${nextStage.name}`
+                                                    : `✅ Validate → ${nextStage.name}`
+                                                }
+                                            </button>
+                                        )}
+                                    </div>
+                                )
+                            })()}
+
+                            <div className='flex items-center justify-between'>
+                                <div>
+                                    <h2 className='font-bold text-[#7c3aed]'>{selectedEco.ecoCode} — {selectedEco.title}</h2>
+                                    <p className='text-xs text-gray-400 mt-0.5'>{selectedEco.ecoType} · {selectedEco.user} · {selectedEco.effectiveDate || 'No effective date'}</p>
+                                </div>
+                                <div className='flex items-center gap-2'>
+                                    <span className={`inline-flex items-center px-2.5 py-0.5 rounded-full text-xs font-semibold border ${statusBadge[selectedEco.status]||''}`}>
+                                        {selectedEco.status === 'Approved' ? 'Applied' : selectedEco.status}
+                                    </span>
+                                    {canReviewEco && selectedEco.status === 'Draft' && (
+                                        <button onClick={() => updateEcoStatus(selectedEco.id, 'Reviewed')}
+                                            className='px-3 py-1 rounded border border-purple-300 text-purple-700 text-xs font-semibold hover:bg-purple-50'>Review</button>
+                                    )}
+                                    {canReviewEco && selectedEco.status === 'Reviewed' && (<>
+                                        <button onClick={() => updateEcoStatus(selectedEco.id, 'Approved')}
+                                            className='px-3 py-1 rounded border border-green-300 text-green-700 text-xs font-semibold hover:bg-green-50'>Approve</button>
+                                        <button onClick={() => updateEcoStatus(selectedEco.id, 'Rejected')}
+                                            className='px-3 py-1 rounded border border-red-300 text-red-700 text-xs font-semibold hover:bg-red-50'>Reject</button>
+                                    </>)}
+                                </div>
                             </div>
                         </div>
 

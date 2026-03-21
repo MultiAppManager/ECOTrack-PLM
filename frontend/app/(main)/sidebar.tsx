@@ -51,8 +51,7 @@ const Sidebar = () => {
         { label: 'Bills of Materials', href: '/bom', show: isEngineeringUser || isOperationsUser || isAdmin, enabled: true },
         { label: 'Engineering Change Orders (ECO)', href: '/eco', show: true, enabled: true },
         { label: 'Reports', href: '/reports', show: true, enabled: true },
-        { label: 'ECO Stages', href: '/dashboard', show: isAdmin, enabled: false },
-        { label: 'Approval Rules', href: '/dashboard', show: isAdmin || isApprover, enabled: false },
+        { label: 'ECO Stages', href: '/eco-stages', show: isAdmin, enabled: true },
     ]
     return (
         <>

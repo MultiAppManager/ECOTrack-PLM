@@ -141,26 +141,28 @@ const ReportingClient = () => {
     ] as const
 
     return (
-        <div className='min-h-screen p-6 overflow-x-auto'>
-            <div className='max-w-7xl min-w-[900px] mx-auto space-y-5'>
+        <div className='min-h-screen p-8 bg-gradient-to-br from-slate-50 to-purple-50/30 overflow-x-auto'>
+            <div className='max-w-7xl min-w-[900px] mx-auto space-y-6'>
 
-                {/* Page Header */}
+                {/* Page Header - Matched to screenshot */}
                 <div className='flex items-center gap-3 mb-2'>
-                    <div className='w-1 h-7 rounded-full bg-purple-500' />
-                    <h1 className='text-xl font-bold text-white tracking-wide'>Reporting</h1>
+                    <div className='w-1.5 h-8 rounded-full bg-purple-600' />
+                    <div className='bg-purple-600/90 text-white px-4 py-1.5 rounded-lg shadow-sm backdrop-blur'>
+                        <h1 className='text-lg font-bold tracking-wide'>Reporting</h1>
+                    </div>
                 </div>
 
-                {/* Tab bar */}
-                <div className='flex gap-2 bg-white/5 border border-purple-300/20 rounded-xl p-1.5 flex-wrap'>
+                {/* Tab bar - More consistent and polished */}
+                <div className='flex items-center gap-1 bg-white/80 backdrop-blur-sm border border-purple-100 rounded-2xl p-1 shadow-sm w-full overflow-x-auto no-scrollbar'>
                     {tabs.map((tab) => (
                         <button
                             key={tab.id}
                             onClick={() => setActiveTab(tab.id)}
                             className={[
-                                'px-4 py-2 rounded-lg text-sm font-semibold transition-all duration-200',
+                                'px-6 py-2.5 rounded-xl text-sm font-bold transition-all duration-200 whitespace-nowrap',
                                 activeTab === tab.id
                                     ? 'bg-purple-600 text-white shadow-md'
-                                    : 'text-purple-200 hover:bg-white/10',
+                                    : 'text-purple-400 hover:bg-purple-50 hover:text-purple-700',
                             ].join(' ')}
                         >
                             {tab.label}
@@ -170,29 +172,35 @@ const ReportingClient = () => {
 
                 {/* ====== ECO REPORT ====== */}
                 {activeTab === 'eco' && (
-                    <div className='bg-white rounded-2xl border-2 border-purple-200 shadow-sm overflow-hidden'>
-                        <div className='px-5 py-3 border-b border-purple-200 flex items-center justify-between gap-3'>
-                            <h2 className='text-base font-semibold text-purple-700'>
-                                Engineering Change Orders Report
-                            </h2>
-                            <input
-                                type='text'
-                                placeholder='Search…'
-                                value={searchTerm}
-                                onChange={(e) => setSearchTerm(e.target.value)}
-                                className='border-2 border-purple-300 rounded-lg px-3 py-1.5 text-sm focus:outline-none focus:ring-2 focus:ring-purple-500 w-56'
-                            />
+                    <div className='bg-white rounded-2xl border border-purple-100 shadow-xl shadow-purple-100/20 overflow-hidden'>
+                        <div className='px-6 py-4 bg-gradient-to-r from-purple-50 to-indigo-50 border-b border-purple-100 flex items-center justify-between gap-4'>
+                            <div>
+                                <h2 className='text-lg font-bold text-purple-800 tracking-tight'>
+                                    Engineering Change Orders Report
+                                </h2>
+                                <p className='text-xs text-purple-500 mt-0.5 font-medium'>Full audit trail of all ECO requests</p>
+                            </div>
+                            <div className='relative'>
+                                <input
+                                    type='text'
+                                    placeholder='Search reports…'
+                                    value={searchTerm}
+                                    onChange={(e) => setSearchTerm(e.target.value)}
+                                    className='border border-purple-200 rounded-xl px-4 py-2 text-sm focus:outline-none focus:ring-4 focus:ring-purple-500/10 focus:border-purple-500 w-64 bg-white/80 backdrop-blur transition-all placeholder:text-gray-400'
+                                />
+                                <span className='absolute right-3 top-2.5 opacity-30'>🔍</span>
+                            </div>
                         </div>
 
                         <div className='overflow-x-auto'>
                             <table className='w-full min-w-[640px]'>
-                                <thead className='bg-purple-50 border-b border-purple-200'>
+                                <thead className='bg-purple-100/50 border-b-2 border-purple-100'>
                                     <tr>
-                                        <th className='text-left p-3 font-semibold text-purple-800 text-sm whitespace-nowrap'>ECO Title</th>
-                                        <th className='text-left p-3 font-semibold text-purple-800 text-sm whitespace-nowrap'>ECO Type</th>
-                                        <th className='text-left p-3 font-semibold text-purple-800 text-sm whitespace-nowrap'>Product Name</th>
-                                        <th className='text-left p-3 font-semibold text-purple-800 text-sm whitespace-nowrap'>Status</th>
-                                        <th className='text-left p-3 font-semibold text-purple-800 text-sm whitespace-nowrap'>Changes</th>
+                                        <th className='text-left p-4 font-bold text-purple-900 text-xs uppercase tracking-wider whitespace-nowrap'>ECO Title</th>
+                                        <th className='text-left p-4 font-bold text-purple-900 text-xs uppercase tracking-wider whitespace-nowrap'>ECO Type</th>
+                                        <th className='text-left p-4 font-bold text-purple-900 text-xs uppercase tracking-wider whitespace-nowrap'>Product Name</th>
+                                        <th className='text-left p-4 font-bold text-purple-900 text-xs uppercase tracking-wider whitespace-nowrap'>Status</th>
+                                        <th className='text-left p-4 font-bold text-purple-900 text-xs uppercase tracking-wider whitespace-nowrap'>Changes</th>
                                     </tr>
                                 </thead>
                                 <tbody>
@@ -241,10 +249,10 @@ const ReportingClient = () => {
 
                 {/* ====== PRODUCT VERSION HISTORY ====== */}
                 {activeTab === 'version' && (
-                    <div className='bg-white rounded-2xl border-2 border-purple-200 shadow-sm overflow-hidden'>
-                        <div className='px-5 py-3 border-b border-purple-200'>
-                            <h2 className='text-base font-semibold text-purple-700'>Product Version History</h2>
-                            <p className='text-xs text-gray-500 mt-0.5'>Track all version changes across products</p>
+                    <div className='bg-white rounded-2xl border border-purple-100 shadow-xl shadow-purple-100/20 overflow-hidden'>
+                        <div className='px-6 py-4 bg-gradient-to-r from-indigo-50 to-purple-50 border-b border-purple-100'>
+                            <h2 className='text-lg font-bold text-purple-800 tracking-tight'>Product Version History</h2>
+                            <p className='text-xs text-indigo-500 mt-0.5 font-medium'>Track all version changes across products</p>
                         </div>
                         <div className='overflow-x-auto'>
                             <table className='w-full min-w-[540px]'>
@@ -277,10 +285,10 @@ const ReportingClient = () => {
 
                 {/* ====== BOM CHANGE HISTORY ====== */}
                 {activeTab === 'bom' && (
-                    <div className='bg-white rounded-2xl border-2 border-purple-200 shadow-sm overflow-hidden'>
-                        <div className='px-5 py-3 border-b border-purple-200'>
-                            <h2 className='text-base font-semibold text-purple-700'>BoM Change History</h2>
-                            <p className='text-xs text-gray-500 mt-0.5'>All Bill of Materials field-level changes</p>
+                    <div className='bg-white rounded-2xl border border-purple-100 shadow-xl shadow-purple-100/20 overflow-hidden'>
+                        <div className='px-6 py-4 bg-gradient-to-r from-purple-50 to-indigo-50 border-b border-purple-100'>
+                            <h2 className='text-lg font-bold text-purple-800 tracking-tight'>BoM Change History</h2>
+                            <p className='text-xs text-purple-500 mt-0.5 font-medium'>All Bill of Materials field-level changes</p>
                         </div>
                         <div className='overflow-x-auto'>
                             <table className='w-full min-w-[600px]'>
@@ -313,10 +321,10 @@ const ReportingClient = () => {
 
                 {/* ====== ARCHIVED PRODUCTS ====== */}
                 {activeTab === 'archived' && (
-                    <div className='bg-white rounded-2xl border-2 border-purple-200 shadow-sm overflow-hidden'>
-                        <div className='px-5 py-3 border-b border-purple-200'>
-                            <h2 className='text-base font-semibold text-purple-700'>Archived Products</h2>
-                            <p className='text-xs text-gray-500 mt-0.5'>Products no longer in active production</p>
+                    <div className='bg-white rounded-2xl border border-purple-100 shadow-xl shadow-purple-100/20 overflow-hidden'>
+                        <div className='px-6 py-4 bg-gradient-to-r from-indigo-50 to-purple-50 border-b border-purple-100'>
+                            <h2 className='text-lg font-bold text-purple-800 tracking-tight'>Archived Products</h2>
+                            <p className='text-xs text-indigo-500 mt-0.5 font-medium'>Products no longer in active production</p>
                         </div>
                         <div className='overflow-x-auto'>
                             <table className='w-full min-w-[520px]'>
@@ -347,10 +355,10 @@ const ReportingClient = () => {
 
                 {/* ====== MATRIX ====== */}
                 {activeTab === 'matrix' && (
-                    <div className='bg-white rounded-2xl border-2 border-purple-200 shadow-sm overflow-hidden'>
-                        <div className='px-5 py-3 border-b border-purple-200'>
-                            <h2 className='text-base font-semibold text-purple-700'>Active Product – Version – BoM Matrix</h2>
-                            <p className='text-xs text-gray-500 mt-0.5'>Current state of all product versions and their linked BoMs</p>
+                    <div className='bg-white rounded-2xl border border-purple-100 shadow-xl shadow-purple-100/20 overflow-hidden'>
+                        <div className='px-6 py-4 bg-gradient-to-r from-purple-50 to-indigo-50 border-b border-purple-100'>
+                            <h2 className='text-lg font-bold text-purple-800 tracking-tight'>Product – Version – BoM Matrix</h2>
+                            <p className='text-xs text-purple-500 mt-0.5 font-medium'>Current state of all product versions and their linked BoMs</p>
                         </div>
                         <div className='overflow-x-auto'>
                             <table className='w-full min-w-[580px]'>

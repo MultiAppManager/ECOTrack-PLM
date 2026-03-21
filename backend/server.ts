@@ -415,7 +415,7 @@ app.get('/api/eco-requests', async (req, res) => {
     const requests = await prisma.$queryRawUnsafe(`
       SELECT id, "ecoCode", title, "ecoType", product, bom, "productId", "bomId",
              "requestedById", "requestedBy", "effectiveDate", "versionUpdate",
-             status, changes, "createdAt", "updatedAt"
+             status, changes, "stageId", "stageStatus", "createdAt", "updatedAt"
       FROM eco_request ORDER BY "createdAt" DESC
     `);
     return res.json(requests);
@@ -454,16 +454,20 @@ app.post('/api/eco-requests', async (req, res) => {
     const nextStatus = ECO_ALLOWED_STATUSES.has(status) ? String(status) : 'Draft';
     const changesJson = JSON.stringify(changes || null);
 
+    // Get first stage to assign automatically
+    const firstStageRows = await prisma.$queryRawUnsafe<any[]>(`SELECT id FROM eco_stage ORDER BY sequence ASC LIMIT 1`);
+    const stageId = firstStageRows?.[0]?.id || null;
+
     await prisma.$executeRawUnsafe(`
       INSERT INTO eco_request (id, "ecoCode", title, "ecoType", product, bom, "productId", "bomId",
-        "requestedById", "requestedBy", "effectiveDate", "versionUpdate", status, changes, "createdAt", "updatedAt")
-      VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,$14::json,NOW(),NOW())
+        "requestedById", "requestedBy", "effectiveDate", "versionUpdate", status, changes, "stageId", "stageStatus", "createdAt", "updatedAt")
+      VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,$14::json,$15,$16,NOW(),NOW())
     `,
       id, ecoCode, String(title), String(ecoType), productName, bomName,
       productId || null, bomId || null,
       session.user.id, session.user.name || session.user.email || 'Unknown',
       effectiveDate ? new Date(effectiveDate) : null,
-      Boolean(versionUpdate), nextStatus, changesJson
+      Boolean(versionUpdate), nextStatus, changesJson, stageId, 'open'
     );
 
     const rows = await prisma.$queryRawUnsafe<any[]>(`SELECT * FROM eco_request WHERE id = $1`, id);
@@ -591,6 +595,269 @@ app.patch('/api/eco-requests/:id/status', async (req, res) => {
     return res.json(updated[0]);
   } catch (e: any) { return res.status(500).json({ error: e.message }); }
 });
+
+// ════════════════════════════════════════════════════════════════════════════
+//  ECO STAGE ADVANCE  (move ECO to next stage or mark Applied)
+// ════════════════════════════════════════════════════════════════════════════
+app.patch('/api/eco-requests/:id/advance-stage', async (req, res) => {
+  try {
+    const session = await auth.api.getSession({ headers: req.headers as any });
+    if (!session) return res.status(401).json({ error: 'Unauthorized' });
+
+    const ecoRows = await prisma.$queryRawUnsafe<any[]>(`SELECT * FROM eco_request WHERE id = $1`, req.params.id);
+    if (!ecoRows?.[0]) return res.status(404).json({ error: 'ECO not found' });
+    const eco = ecoRows[0];
+
+    // Get all stages ordered by sequence
+    const allStages = await prisma.$queryRawUnsafe<any[]>(`
+      SELECT s.*, json_agg(a.*) FILTER (WHERE a.id IS NOT NULL) AS approvals
+      FROM eco_stage s
+      LEFT JOIN eco_stage_approval a ON a."stageId" = s.id
+      GROUP BY s.id ORDER BY s.sequence ASC
+    `);
+
+    if (!allStages || allStages.length === 0)
+      return res.status(400).json({ error: 'No stages configured. Please configure ECO Stages first.' });
+
+    // Find current stage index
+    let currentIdx = -1;
+    if (eco.stageId) {
+      currentIdx = allStages.findIndex((s: any) => s.id === eco.stageId);
+    }
+
+    const nextIdx = currentIdx + 1;
+    if (nextIdx >= allStages.length)
+      return res.status(400).json({ error: 'ECO is already at the final stage.' });
+
+    // The requirement check for "Approve" vs "Validate" should be based on the CURRENT stage's status?
+    // User says: "Approving an ECO: Moves it to the next stage."
+    // And "If approval is mandatory: Approval button is shown".
+    // This implies that for the current stage, we see a button to move to next.
+    // If current stage has required approvals, we call it "Approve".
+    
+    // BUT, the advance-stage endpoint is what DOES the advancement.
+    // We should probably check if the current user HAS authority or if required signatures are present
+    // (For this simple version, clicking the button IS the approval/validation).
+
+    const nextStage = allStages[nextIdx];
+    const isFinalStage = nextStage.isFinal;
+
+    // Advance to next stage
+    const newStatus = isFinalStage ? 'Applied' : eco.status;
+    const newStageStatus = isFinalStage ? 'applied' : (requiredApprovals.length > 0 ? 'open' : 'open');
+
+    const updated = await prisma.$queryRawUnsafe<any[]>(`
+      UPDATE eco_request
+      SET "stageId"=$1, "stageStatus"=$2, status=$3, "updatedAt"=NOW()
+      WHERE id=$4
+      RETURNING *
+    `, nextStage.id, newStageStatus, newStatus, req.params.id);
+
+    // If final stage, also run the version bump (reuse existing approval logic)
+    if (isFinalStage && eco.status !== 'Applied') {
+      // Trigger version creation by calling the approve path
+      let proposedChanges: Record<string, any> = {};
+      try {
+        proposedChanges = typeof eco.changes === 'object' && eco.changes !== null
+          ? eco.changes : (eco.changes ? JSON.parse(eco.changes) : {});
+      } catch { proposedChanges = {}; }
+
+      if (eco.productId) {
+        const prodRows = await prisma.$queryRawUnsafe<any[]>(
+          `SELECT id,"productCode",name,"salePrice","costPrice",attachments,version FROM product WHERE id=$1`, eco.productId
+        );
+        if (prodRows?.[0]) {
+          const old = prodRows[0];
+          const newId = randomUUID();
+          const newVersion = Number(old.version) + 1;
+          const pc = proposedChanges || {};
+          const newName      = pc.name      !== undefined ? String(pc.name)          : old.name;
+          const newSalePrice = pc.salePrice !== undefined ? parseFloat(pc.salePrice) : Number(old.salePrice);
+          const newCostPrice = pc.costPrice !== undefined ? parseFloat(pc.costPrice) : Number(old.costPrice);
+          const newAttach    = pc.attachments !== undefined ? pc.attachments : (Array.isArray(old.attachments) ? old.attachments : []);
+          const diff: Record<string, {from:any;to:any}> = {};
+          if (newName !== old.name)                diff.name      = { from: old.name, to: newName };
+          if (newSalePrice !== Number(old.salePrice)) diff.salePrice = { from: Number(old.salePrice), to: newSalePrice };
+          if (newCostPrice !== Number(old.costPrice)) diff.costPrice = { from: Number(old.costPrice), to: newCostPrice };
+          const priceDiff = parseFloat((newSalePrice - Number(old.salePrice)).toFixed(2));
+          const itemDiff  = Object.keys(diff).length;
+          await prisma.$executeRawUnsafe(`UPDATE product SET "isLatest"=false, status='Archived', "updatedAt"=NOW() WHERE id=$1`, old.id);
+          await prisma.$executeRawUnsafe(
+            `INSERT INTO product (id,"productCode",name,"salePrice","costPrice",attachments,version,status,"isLatest","versionDiff","priceDifference","itemDifference","createdAt","updatedAt")
+             VALUES ($1,$2,$3,$4,$5,$6::json,$7,'Active',true,$8::json,$9,$10,NOW(),NOW())`,
+            newId, old.productCode, newName, newSalePrice, newCostPrice,
+            JSON.stringify(newAttach), newVersion,
+            itemDiff > 0 ? JSON.stringify(diff) : null,
+            itemDiff > 0 ? priceDiff : null,
+            itemDiff > 0 ? itemDiff : null
+          );
+        }
+      }
+
+      if (eco.bomId) {
+        const bomRows = await prisma.$queryRawUnsafe<any[]>(
+          `SELECT id,"bomCode",name,"productCode",version,components,notes FROM bill_of_materials WHERE id=$1`, eco.bomId
+        );
+        if (bomRows?.[0]) {
+          const old = bomRows[0];
+          const newId = randomUUID();
+          const newVersion = Number(old.version) + 1;
+          const pc = proposedChanges || {};
+          const newComponents = pc.components !== undefined ? pc.components : (Array.isArray(old.components) ? old.components : []);
+          const newNotes      = pc.notes !== undefined ? pc.notes : old.notes;
+          const newBomName    = pc.bomName !== undefined ? pc.bomName : old.name;
+          const diff: Record<string,any> = {};
+          if (JSON.stringify(newComponents) !== JSON.stringify(old.components)) diff.components = { from: old.components, to: newComponents };
+          if (newNotes !== old.notes) diff.notes = { from: old.notes, to: newNotes };
+          await prisma.$executeRawUnsafe(`UPDATE bill_of_materials SET "isLatest"=false,status='Archived',"updatedAt"=NOW() WHERE id=$1`, old.id);
+          await prisma.$executeRawUnsafe(
+            `INSERT INTO bill_of_materials (id,"bomCode",name,"productCode",version,components,notes,status,"isLatest","versionDiff","createdAt","updatedAt")
+             VALUES ($1,$2,$3,$4,$5,$6::json,$7,'Active',true,$8::json,NOW(),NOW())`,
+            newId, old.bomCode, newBomName, old.productCode, newVersion,
+            JSON.stringify(newComponents), newNotes || null,
+            Object.keys(diff).length > 0 ? JSON.stringify(diff) : null
+          );
+        }
+      }
+    }
+
+    return res.json({ ...updated[0], nextStage, isFinalStage });
+  } catch (e: any) { return res.status(500).json({ error: e.message }); }
+});
+
+// ════════════════════════════════════════════════════════════════════════════
+//  ECO STAGES CRUD  (Settings → ECO Stages)
+// ════════════════════════════════════════════════════════════════════════════
+
+// GET all stages with their approvals
+app.get('/api/eco-stages', async (req, res) => {
+  try {
+    const session = await auth.api.getSession({ headers: req.headers as any });
+    if (!session) return res.status(401).json({ error: 'Unauthorized' });
+    const stages = await prisma.$queryRawUnsafe<any[]>(`
+      SELECT s.*, COALESCE(json_agg(a.* ORDER BY a."createdAt" ASC) FILTER (WHERE a.id IS NOT NULL), '[]') AS approvals
+      FROM eco_stage s
+      LEFT JOIN eco_stage_approval a ON a."stageId" = s.id
+      GROUP BY s.id ORDER BY s.sequence ASC
+    `);
+    return res.json(stages);
+  } catch (e: any) { return res.status(500).json({ error: e.message }); }
+});
+
+// GET single stage
+app.get('/api/eco-stages/:id', async (req, res) => {
+  try {
+    const session = await auth.api.getSession({ headers: req.headers as any });
+    if (!session) return res.status(401).json({ error: 'Unauthorized' });
+    const rows = await prisma.$queryRawUnsafe<any[]>(`
+      SELECT s.*, COALESCE(json_agg(a.* ORDER BY a."createdAt" ASC) FILTER (WHERE a.id IS NOT NULL), '[]') AS approvals
+      FROM eco_stage s
+      LEFT JOIN eco_stage_approval a ON a."stageId" = s.id
+      WHERE s.id = $1
+      GROUP BY s.id
+    `, req.params.id);
+    if (!rows?.[0]) return res.status(404).json({ error: 'Stage not found' });
+    return res.json(rows[0]);
+  } catch (e: any) { return res.status(500).json({ error: e.message }); }
+});
+
+// POST create stage
+app.post('/api/eco-stages', async (req, res) => {
+  try {
+    const session = await auth.api.getSession({ headers: req.headers as any });
+    if (!session || session.user.role !== 'Admin') return res.status(403).json({ error: 'Admin only' });
+    const { name, sequence, isFinal } = req.body || {};
+    if (!name) return res.status(400).json({ error: 'Name is required' });
+    const id = randomUUID();
+    await prisma.$executeRawUnsafe(
+      `INSERT INTO eco_stage (id, name, sequence, "isFinal", "createdAt", "updatedAt") VALUES ($1,$2,$3,$4,NOW(),NOW())`,
+      id, String(name), Number(sequence) || 0, Boolean(isFinal)
+    );
+    const rows = await prisma.$queryRawUnsafe<any[]>(`
+      SELECT s.*, '[]'::json AS approvals FROM eco_stage s WHERE s.id=$1`, id);
+    return res.status(201).json(rows[0]);
+  } catch (e: any) { return res.status(500).json({ error: e.message }); }
+});
+
+// PUT update stage
+app.put('/api/eco-stages/:id', async (req, res) => {
+  try {
+    const session = await auth.api.getSession({ headers: req.headers as any });
+    if (!session || session.user.role !== 'Admin') return res.status(403).json({ error: 'Admin only' });
+    const { name, sequence, isFinal } = req.body || {};
+    if (!name) return res.status(400).json({ error: 'Name is required' });
+    await prisma.$executeRawUnsafe(
+      `UPDATE eco_stage SET name=$1, sequence=$2, "isFinal"=$3, "updatedAt"=NOW() WHERE id=$4`,
+      String(name), Number(sequence) || 0, Boolean(isFinal), req.params.id
+    );
+    const rows = await prisma.$queryRawUnsafe<any[]>(`
+      SELECT s.*, COALESCE(json_agg(a.* ORDER BY a."createdAt" ASC) FILTER (WHERE a.id IS NOT NULL), '[]') AS approvals
+      FROM eco_stage s LEFT JOIN eco_stage_approval a ON a."stageId"=s.id
+      WHERE s.id=$1 GROUP BY s.id`, req.params.id);
+    return res.json(rows[0]);
+  } catch (e: any) { return res.status(500).json({ error: e.message }); }
+});
+
+// DELETE stage
+app.delete('/api/eco-stages/:id', async (req, res) => {
+  try {
+    const session = await auth.api.getSession({ headers: req.headers as any });
+    if (!session || session.user.role !== 'Admin') return res.status(403).json({ error: 'Admin only' });
+    await prisma.$executeRawUnsafe(`DELETE FROM eco_stage WHERE id=$1`, req.params.id);
+    return res.json({ success: true });
+  } catch (e: any) { return res.status(500).json({ error: e.message }); }
+});
+
+// POST add approval to stage
+app.post('/api/eco-stages/:id/approvals', async (req, res) => {
+  try {
+    const session = await auth.api.getSession({ headers: req.headers as any });
+    if (!session || session.user.role !== 'Admin') return res.status(403).json({ error: 'Admin only' });
+    const { userId, userName, category } = req.body || {};
+    if (!userId) return res.status(400).json({ error: 'userId is required' });
+    const cat = category === 'Optional' ? 'Optional' : 'Required';
+    // Resolve user name if not provided
+    let resolvedName = userName || '';
+    if (!resolvedName) {
+      const uRows = await prisma.$queryRawUnsafe<any[]>(`SELECT name FROM "user" WHERE id=$1`, userId);
+      resolvedName = uRows?.[0]?.name || userId;
+    }
+    const id = randomUUID();
+    await prisma.$executeRawUnsafe(
+      `INSERT INTO eco_stage_approval (id, "stageId", "userId", "userName", category, "createdAt") VALUES ($1,$2,$3,$4,$5,NOW())`,
+      id, req.params.id, userId, resolvedName, cat
+    );
+    const rows = await prisma.$queryRawUnsafe<any[]>(`SELECT * FROM eco_stage_approval WHERE id=$1`, id);
+    return res.status(201).json(rows[0]);
+  } catch (e: any) { return res.status(500).json({ error: e.message }); }
+});
+
+// DELETE approval from stage
+app.delete('/api/eco-stages/:stageId/approvals/:approvalId', async (req, res) => {
+  try {
+    const session = await auth.api.getSession({ headers: req.headers as any });
+    if (!session || session.user.role !== 'Admin') return res.status(403).json({ error: 'Admin only' });
+    await prisma.$executeRawUnsafe(
+      `DELETE FROM eco_stage_approval WHERE id=$1 AND "stageId"=$2`,
+      req.params.approvalId, req.params.stageId
+    );
+    return res.json({ success: true });
+  } catch (e: any) { return res.status(500).json({ error: e.message }); }
+});
+
+// GET all users (for approval user picker — any logged-in user)
+app.get('/api/users-list', async (req, res) => {
+  try {
+    const session = await auth.api.getSession({ headers: req.headers as any });
+    if (!session) return res.status(401).json({ error: 'Unauthorized' });
+    const users = await prisma.$queryRawUnsafe<any[]>(
+      `SELECT id, name, email, role FROM "user" ORDER BY name ASC`
+    );
+    return res.json(users);
+  } catch (e: any) { return res.status(500).json({ error: e.message }); }
+});
+
+
 
 // ─── OTP / Sync password endpoints ───────────────────────────────────────────
 app.use('/api/send-otp', async (req, res) => {

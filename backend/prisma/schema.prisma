@@ -128,22 +128,55 @@ model EcoRequest {
   ecoCode       String    @unique
   title         String
   ecoType       String    // "Products" | "Bills of Materials"
-  product       String    // display name (legacy + fallback)
-  bom           String    // display name (legacy + fallback)
-  productId     String?   // FK → product.id (specific version selected at ECO creation)
+  product       String    // display name
+  bom           String    // display name
+  productId     String?   // FK → product.id
   bomId         String?   // FK → bill_of_materials.id
   requestedById String
   requestedBy   String
   effectiveDate DateTime?
   versionUpdate Boolean   @default(false)
-  status        String    @default("Draft")  // Draft | Reviewed | Approved | Rejected
-  changes       Json?     // proposed field changes stored as JSON
+  status        String    @default("Draft")  // Draft | Reviewed | Approved | Rejected | Applied
+  stageId       String?   // FK → eco_stage.id (current stage)
+  stageStatus   String    @default("open")  // open | approved | applied
+  changes       Json?
   createdAt     DateTime  @default(now())
   updatedAt     DateTime  @updatedAt
 
   @@index([status])
+  @@index([stageId])
   @@index([createdAt])
   @@index([productId])
   @@index([bomId])
   @@map("eco_request")
 }
+
+// ─── ECO Stages (configurable via Settings) ───────────────────────────────────
+model EcoStage {
+  id        String   @id @default(cuid())
+  name      String   @db.VarChar(100)   // e.g. "New", "Approval", "Done"
+  sequence  Int      @default(0)        // lower = earlier stage
+  isFinal   Boolean  @default(false)    // true = marks ECO as Applied when reached
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  approvals EcoStageApproval[]
+
+  @@index([sequence])
+  @@map("eco_stage")
+}
+
+// ─── Per-stage approval rules ─────────────────────────────────────────────────
+model EcoStageApproval {
+  id       String   @id @default(cuid())
+  stageId  String
+  stage    EcoStage @relation(fields: [stageId], references: [id], onDelete: Cascade)
+  userId   String   // FK → user.id
+  userName String   // denormalized display name
+  category String   @default("Required")  // "Required" | "Optional"
+  createdAt DateTime @default(now())
+
+  @@index([stageId])
+  @@map("eco_stage_approval")
+}
+
