@@ -46,10 +46,10 @@ const Sidebar = () => {
     const isOperationsUser = user.role === 'Operations User'
 
     const menuItems: Array<{ label: string; href: string; show: boolean; enabled?: boolean }> = [
-        { label: 'Dashboard', href: '/dashboard', show: true, enabled: true },
+        { label: 'Dashboard', href: '/dashboard', show: isAdmin, enabled: true },
         { label: 'Products', href: '/products', show: isEngineeringUser || isOperationsUser || isAdmin, enabled: true },
         { label: 'Bills of Materials', href: '/bom', show: isEngineeringUser || isOperationsUser || isAdmin, enabled: true },
-        { label: 'Engineering Change Orders (ECO)', href: '/eco', show: true, enabled: true },
+        { label: 'Engineering Change Orders (ECO)', href: '/eco', show: !isOperationsUser, enabled: true },
         { label: 'Reports', href: '/reports', show: true, enabled: true },
         { label: 'ECO Stages', href: '/eco-stages', show: isAdmin, enabled: true },
     ]
@@ -73,7 +73,7 @@ const Sidebar = () => {
                         </div>
 
                         <div className='mt-2.5 flex items-center justify-between gap-2'>
-                            <p className='text-[11px] text-white/80 truncate'>ID: {user.id || '-'}</p>
+
                             <div className='inline-flex items-center px-2.5 py-0.5 rounded-full bg-[#b23de8] border border-[#d07aff]/40 text-[11px] font-semibold text-yellow-200'>
                                 {user.role || 'Operations User'}
                             </div>
@@ -126,29 +126,16 @@ const Sidebar = () => {
                             <span className='w-4 h-4 rounded-full border border-white/70' />
                             <span className='font-medium text-sm'>Profile</span>
                         </Link>
-
-                        {isAdmin && (
-                            <Link
-                                href='/admin'
-                                className={[
-                                    'w-full flex items-center gap-3 px-3 py-2.5 rounded-lg transition-colors duration-200 text-white/85 hover:bg-[#0f1a32]',
-                                    pathname === '/admin' ? 'bg-[#131f3a] text-white border border-[#1f3c73]' : '',
-                                ].join(' ')}
-                            >
-                                <span className='w-4 h-4 rounded-full border border-white/70' />
-                                <span className='font-medium text-sm'>Manager Dashboard</span>
-                            </Link>
-                        )}
                     </div>
                 </nav>
 
-                <div className='px-2 pb-3'>
+                <div className='px-2 pt-3 pb-8 border-t border-[#1b2d55]'>
                     <button
                         onClick={handleSignOut}
-                        className='w-full flex items-center gap-3 px-3 py-2.5 text-[#ff5a6e] hover:bg-[#0f1a32] transition-colors duration-200 text-left rounded-lg'
+                        className='w-full flex items-center gap-3 px-3 py-3 text-[#ff5a6e] hover:bg-[#0f1a32] transition-colors duration-200 text-left rounded-lg'
                     >
-                        <span className='w-4 h-4 rounded-full border border-[#ff5a6e]' />
-                        <span className='font-semibold text-sm'>Logout</span>
+                        <span className='w-5 h-5 rounded-full border-2 border-[#ff5a6e] flex-shrink-0' />
+                        <span className='font-bold text-base'>Logout</span>
                     </button>
                 </div>
 

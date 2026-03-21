@@ -81,6 +81,85 @@ app.get('/api/users', async (req, res) => {
   } catch (e: any) { return res.status(500).json({ error: e.message }); }
 });
 
+// ─── Dashboard statistics (live data) ──────────────────────────────────────────
+app.get('/api/dashboard/stats', async (req, res) => {
+  try {
+    const session = await auth.api.getSession({ headers: req.headers as any });
+    if (!session) return res.status(401).json({ error: 'Unauthorized' });
+
+    // ECO counts by status
+    const ecoByStatus = await prisma.$queryRawUnsafe<{ status: string; count: string }[]>(`
+      SELECT status, COUNT(*)::text AS count FROM eco_request GROUP BY status
+    `);
+
+    // ECO counts by type
+    const ecoByType = await prisma.$queryRawUnsafe<{ ecoType: string; count: string }[]>(`
+      SELECT "ecoType" AS "ecoType", COUNT(*)::text AS count FROM eco_request GROUP BY "ecoType"
+    `);
+
+    // ECO created per month (last 6 months)
+    const ecoTrend = await prisma.$queryRawUnsafe<{ month: string; count: string }[]>(`
+      SELECT TO_CHAR("createdAt", 'YYYY-MM') AS month, COUNT(*)::text AS count
+      FROM eco_request
+      WHERE "createdAt" >= CURRENT_DATE - INTERVAL '6 months'
+      GROUP BY TO_CHAR("createdAt", 'YYYY-MM')
+      ORDER BY month ASC
+    `);
+
+    // Product count (active latest only)
+    const productCount = await prisma.$queryRawUnsafe<{ count: string }[]>(
+      `SELECT COUNT(*)::text AS count FROM product WHERE "isLatest" = true AND status = 'Active'`
+    );
+
+    // BOM count (active latest only)
+    const bomCount = await prisma.$queryRawUnsafe<{ count: string }[]>(
+      `SELECT COUNT(*)::text AS count FROM bill_of_materials WHERE "isLatest" = true AND status = 'Active'`
+    );
+
+    // User count
+    const userCount = await prisma.$queryRawUnsafe<{ count: string }[]>(
+      `SELECT COUNT(*)::text AS count FROM "user"`
+    );
+
+    // Total ECO count
+    const totalEco = await prisma.$queryRawUnsafe<{ count: string }[]>(
+      `SELECT COUNT(*)::text AS count FROM eco_request`
+    );
+
+    // Pending (Draft + Reviewed)
+    const pendingEco = await prisma.$queryRawUnsafe<{ count: string }[]>(
+      `SELECT COUNT(*)::text AS count FROM eco_request WHERE status IN ('Draft', 'Reviewed')`
+    );
+
+    // Recent ECOs (last 5)
+    const recentEcos = await prisma.$queryRawUnsafe<any[]>(`
+      SELECT id, "ecoCode", title, status, "ecoType", "createdAt"
+      FROM eco_request ORDER BY "createdAt" DESC LIMIT 5
+    `);
+
+    return res.json({
+      ecoByStatus: ecoByStatus.map((r) => ({ status: r.status, count: parseInt(r.count, 10) })),
+      ecoByType: ecoByType.map((r) => ({ ecoType: r.ecoType, count: parseInt(r.count, 10) })),
+      ecoTrend: ecoTrend.map((r) => ({ month: r.month, count: parseInt(r.count, 10) })),
+      productCount: parseInt(productCount[0]?.count || '0', 10),
+      bomCount: parseInt(bomCount[0]?.count || '0', 10),
+      userCount: parseInt(userCount[0]?.count || '0', 10),
+      totalEco: parseInt(totalEco[0]?.count || '0', 10),
+      pendingEco: parseInt(pendingEco[0]?.count || '0', 10),
+      recentEcos: recentEcos.map((r) => ({
+        id: r.id,
+        ecoCode: r.ecoCode,
+        title: r.title,
+        status: r.status,
+        ecoType: r.ecoType,
+        createdAt: r.createdAt,
+      })),
+    });
+  } catch (e: any) {
+    return res.status(500).json({ error: e.message });
+  }
+});
+
 // ════════════════════════════════════════════════════════════════════════════
 //  PRODUCT MASTER
 // ════════════════════════════════════════════════════════════════════════════
@@ -411,6 +490,7 @@ app.get('/api/eco-requests', async (req, res) => {
   try {
     const session = await auth.api.getSession({ headers: req.headers as any });
     if (!session) return res.status(401).json({ error: 'Unauthorized' });
+    if (session.user.role === 'Operations User') return res.status(403).json({ error: 'Operations users do not have access to ECO records' });
 
     const requests = await prisma.$queryRawUnsafe(`
       SELECT id, "ecoCode", title, "ecoType", product, bom, "productId", "bomId",
@@ -419,6 +499,23 @@ app.get('/api/eco-requests', async (req, res) => {
       FROM eco_request ORDER BY "createdAt" DESC
     `);
     return res.json(requests);
+  } catch (e: any) { return res.status(500).json({ error: e.message }); }
+});
+
+app.get('/api/eco-requests/:id', async (req, res) => {
+  try {
+    const session = await auth.api.getSession({ headers: req.headers as any });
+    if (!session) return res.status(401).json({ error: 'Unauthorized' });
+    if (session.user.role === 'Operations User') return res.status(403).json({ error: 'Operations users do not have access to ECO records' });
+
+    const rows = await prisma.$queryRawUnsafe<any[]>(`
+      SELECT id, "ecoCode", title, "ecoType", product, bom, "productId", "bomId",
+             "requestedById", "requestedBy", "effectiveDate", "versionUpdate",
+             status, changes, "stageId", "stageStatus", "createdAt", "updatedAt"
+      FROM eco_request WHERE id = $1
+    `, req.params.id);
+    if (!rows?.[0]) return res.status(404).json({ error: 'ECO not found' });
+    return res.json(rows[0]);
   } catch (e: any) { return res.status(500).json({ error: e.message }); }
 });
 
@@ -603,6 +700,7 @@ app.patch('/api/eco-requests/:id/advance-stage', async (req, res) => {
   try {
     const session = await auth.api.getSession({ headers: req.headers as any });
     if (!session) return res.status(401).json({ error: 'Unauthorized' });
+    if (!ECO_ALLOWED_REVIEW_ROLES.has(session.user.role || '')) return res.status(403).json({ error: 'Only Approver or Admin can advance ECO stages' });
 
     const ecoRows = await prisma.$queryRawUnsafe<any[]>(`SELECT * FROM eco_request WHERE id = $1`, req.params.id);
     if (!ecoRows?.[0]) return res.status(404).json({ error: 'ECO not found' });
@@ -734,6 +832,7 @@ app.get('/api/eco-stages', async (req, res) => {
   try {
     const session = await auth.api.getSession({ headers: req.headers as any });
     if (!session) return res.status(401).json({ error: 'Unauthorized' });
+    if (session.user.role === 'Operations User') return res.status(403).json({ error: 'Access denied' });
     const stages = await prisma.$queryRawUnsafe<any[]>(`
       SELECT s.*, COALESCE(json_agg(a.* ORDER BY a."createdAt" ASC) FILTER (WHERE a.id IS NOT NULL), '[]') AS approvals
       FROM eco_stage s

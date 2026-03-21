@@ -91,15 +91,19 @@ const MATRIX_DATA = [
 ]
 
 // ==================== MAIN COMPONENT ====================
-const ReportingClient = () => {
+const ReportingClient = ({ userRole }: { userRole: string }) => {
     const API_BASE = process.env.NEXT_PUBLIC_API_URL || 'http://localhost:5000'
     const [ecoRecords, setEcoRecords] = useState<EcoRecord[]>([])
     const [isLoading, setIsLoading] = useState(true)
-    const [activeTab, setActiveTab] = useState<'eco' | 'version' | 'bom' | 'archived' | 'matrix'>('eco')
+    const [activeTab, setActiveTab] = useState<'eco' | 'version' | 'bom' | 'archived' | 'matrix'>(userRole === 'Operations User' ? 'version' : 'eco')
     const [selectedEco, setSelectedEco] = useState<EcoRecord | null>(null)
     const [searchTerm, setSearchTerm] = useState('')
 
     useEffect(() => {
+        if (userRole === 'Operations User') {
+            setIsLoading(false)
+            return
+        }
         const fetchEco = async () => {
             try {
                 const res = await fetch(`${API_BASE}/api/eco-requests`, { credentials: 'include' })
@@ -123,7 +127,7 @@ const ReportingClient = () => {
             }
         }
         fetchEco()
-    }, [])
+    }, [API_BASE, userRole])
 
     const filteredEco = ecoRecords.filter(
         (r) =>
@@ -132,13 +136,18 @@ const ReportingClient = () => {
             r.product.toLowerCase().includes(searchTerm.toLowerCase())
     )
 
-    const tabs = [
+    const tabs = ([
         { id: 'eco', label: 'ECO Report' },
         { id: 'version', label: 'Product Version History' },
         { id: 'bom', label: 'BoM Change History' },
         { id: 'archived', label: 'Archived Products' },
         { id: 'matrix', label: 'Product–Version–BoM Matrix' },
-    ] as const
+    ] as const).filter(tab => {
+        if (userRole === 'Operations User') {
+            return tab.id !== 'eco' && tab.id !== 'bom'
+        }
+        return true
+    })
 
     return (
         <div className='min-h-screen p-8 bg-gradient-to-br from-slate-50 to-purple-50/30 overflow-x-auto'>

@@ -1,8 +1,8 @@
 import { getServerSession } from '@/lib/get-session'
 import { redirect } from 'next/navigation'
-import DashboardClient from '../dashboard/DashboardClient'
+import EcoCreateClient from '../EcoCreateClient'
 
-const EcoPage = async () => {
+const EcoNewPage = async () => {
   const session = await getServerSession()
   const user = session?.user
   if (!user) {
@@ -10,18 +10,15 @@ const EcoPage = async () => {
   }
 
   const userRole = user.role || 'Operations User'
-  if (userRole === 'Operations User') {
-    redirect('/products')
-  }
   const canCreateEco = userRole === 'Engineering User' || userRole === 'Admin'
 
+  if (!canCreateEco) {
+    redirect('/eco')
+  }
+
   return (
-    <DashboardClient
-      userName={user.name || ''}
-      userRole={userRole}
-      canCreateEco={canCreateEco}
-    />
+    <EcoCreateClient userName={user.name || ''} userRole={userRole} />
   )
 }
 
-export default EcoPage
+export default EcoNewPage

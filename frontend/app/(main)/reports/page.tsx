@@ -9,7 +9,8 @@ const ReportsPage = async () => {
     redirect('/sign-in')
   }
 
-  return <ReportingClient />
+  const userRole = user.role || 'Operations User'
+  return <ReportingClient userRole={userRole} />
 }
 
 export default ReportsPage

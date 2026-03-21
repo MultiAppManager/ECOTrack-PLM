@@ -1,8 +1,10 @@
 import { getServerSession } from '@/lib/get-session'
 import { redirect } from 'next/navigation'
-import DashboardClient from '../dashboard/DashboardClient'
+import EcoDetailClient from '../EcoDetailClient'
 
-const EcoPage = async () => {
+type PageProps = { params: Promise<{ id: string }> }
+
+const EcoDetailPage = async ({ params }: PageProps) => {
   const session = await getServerSession()
   const user = session?.user
   if (!user) {
@@ -15,8 +17,11 @@ const EcoPage = async () => {
   }
   const canCreateEco = userRole === 'Engineering User' || userRole === 'Admin'
 
+  const { id } = await params
+
   return (
-    <DashboardClient
+    <EcoDetailClient
+      ecoId={id}
       userName={user.name || ''}
       userRole={userRole}
       canCreateEco={canCreateEco}
@@ -24,4 +29,4 @@ const EcoPage = async () => {
   )
 }
 
-export default EcoPage
+export default EcoDetailPage
