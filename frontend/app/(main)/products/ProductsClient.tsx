@@ -385,34 +385,13 @@ const ProductsClient = ({ canWrite }: Props) => {
                                         </td>
                                         {/* Actions */}
                                         <td className='px-4 py-3.5'>
-                                            <div className='flex items-center justify-center gap-1.5'>
+                                            <div className='flex items-center justify-center'>
                                                 <button
                                                     onClick={() => setDetailProduct(p)}
                                                     className='px-3 py-1 rounded-lg text-xs font-semibold border border-purple-300 text-[#7c3aed] hover:bg-[#7c3aed] hover:text-white hover:border-[#7c3aed] transition-all duration-150'
                                                 >
                                                     View
                                                 </button>
-                                                {canWrite && p.status === 'Active' && (
-                                                    <button
-                                                        onClick={() => openEdit(p)}
-                                                        className='px-3 py-1 rounded-lg text-xs font-semibold border border-indigo-300 text-indigo-600 hover:bg-indigo-600 hover:text-white hover:border-indigo-600 transition-all duration-150'
-                                                    >
-                                                        Edit
-                                                    </button>
-                                                )}
-                                                {canWrite && (
-                                                    <button
-                                                        onClick={() => setArchiveTarget(p)}
-                                                        className={[
-                                                            'px-3 py-1 rounded-lg text-xs font-semibold border transition-all duration-150',
-                                                            p.status === 'Active'
-                                                                ? 'border-orange-300 text-orange-600 hover:bg-orange-500 hover:text-white hover:border-orange-500'
-                                                                : 'border-emerald-300 text-emerald-600 hover:bg-emerald-500 hover:text-white hover:border-emerald-500'
-                                                        ].join(' ')}
-                                                    >
-                                                        {p.status === 'Active' ? 'Archive' : 'Restore'}
-                                                    </button>
-                                                )}
                                             </div>
                                         </td>
                                     </tr>

@@ -48,7 +48,7 @@ const Sidebar = () => {
     const menuItems: Array<{ label: string; href: string; show: boolean; enabled?: boolean }> = [
         { label: 'Dashboard', href: '/dashboard', show: true, enabled: true },
         { label: 'Products', href: '/products', show: isEngineeringUser || isOperationsUser || isAdmin, enabled: true },
-        { label: 'Bills of Materials', href: '/dashboard', show: isEngineeringUser || isOperationsUser || isAdmin, enabled: false },
+        { label: 'Bills of Materials', href: '/bom', show: isEngineeringUser || isOperationsUser || isAdmin, enabled: true },
         { label: 'Engineering Change Orders (ECO)', href: '/eco', show: true, enabled: true },
         { label: 'Reports', href: '/reports', show: true, enabled: true },
         { label: 'ECO Stages', href: '/dashboard', show: isAdmin, enabled: false },
