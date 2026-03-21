@@ -172,7 +172,7 @@ export default function EcoStagesPage() {
                                         type='checkbox' checked={stageFinal} onChange={e => setStageFinal(e.target.checked)}
                                         className='w-4 h-4 accent-purple-600'
                                     />
-                                    <span className='text-sm font-medium text-gray-700'>Final stage — marks ECO as <span className='text-green-600 font-bold'>Applied</span> when reached</span>
+                                    <span className='text-sm font-medium text-gray-700'>Final stage — marks ECO as <span className='text-green-600 font-bold'>Approved</span> when reached</span>
                                 </label>
                             </div>
 

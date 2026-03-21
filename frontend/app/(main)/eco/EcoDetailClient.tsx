@@ -11,7 +11,7 @@ type EcoDetailClientProps = {
   userRole: string
   canCreateEco: boolean
 }
-type EcoStatus = 'Draft' | 'Reviewed' | 'Rejected' | 'Approved' | 'Applied'
+type EcoStatus = 'Draft' | 'Reviewed' | 'Rejected' | 'Approved'
 
 type EcoRecord = {
   id: string
@@ -50,8 +50,7 @@ type Component = { name: string; qty: number; unit: string; notes?: string }
 const statusBadge: Record<string, string> = {
   Draft: 'bg-white border border-gray-300 text-gray-700',
   Reviewed: 'bg-blue-50 border border-blue-300 text-blue-700',
-  Approved: 'bg-green-50 border border-green-300 text-green-700',
-  Applied: 'bg-purple-100 border border-purple-300 text-purple-700 font-bold',
+  Approved: 'bg-green-50 border border-green-300 text-green-700 font-bold',
   Rejected: 'bg-red-50 border border-red-300 text-red-700',
 }
 const fmtINR = (v: number | string) =>
@@ -229,7 +228,7 @@ const EcoDetailClient = ({
       if (!res.ok) throw new Error(data?.error || 'Failed to advance stage')
       const updatedStatus = data.status as EcoStatus
       if (data.isFinalStage) {
-        toast.success('🎉 ECO Applied — new version created!')
+        toast.success('🎉 ECO approved — new version created!')
         if (eco) setTimeout(() => loadVersionHistory(eco), 800)
       } else {
         toast.success(`✅ Moved to stage: ${data.nextStage?.name || 'next'}`)
@@ -305,8 +304,7 @@ const EcoDetailClient = ({
                 const hasRequiredApproval = currentApprovals.some(
                   (a: any) => a.category === 'Required'
                 )
-                const isFinished =
-                  selectedEco.status === 'Applied' || currentStage?.isFinal
+                const isFinished = selectedEco.status === 'Approved'
 
                 return (
                   <div className="mb-3 space-y-2">
@@ -376,9 +374,7 @@ const EcoDetailClient = ({
                 <span
                   className={`inline-flex items-center px-2.5 py-0.5 rounded-full text-xs font-semibold border ${statusBadge[selectedEco.status] || ''}`}
                 >
-                  {selectedEco.status === 'Approved'
-                    ? 'Applied'
-                    : selectedEco.status}
+                  {selectedEco.status}
                 </span>
                 {canReviewEco && selectedEco.status === 'Draft' && (
                   <button
@@ -452,7 +448,7 @@ const EcoDetailClient = ({
                 <h3 className="font-bold text-sm text-[#7c3aed] mb-4 flex items-center gap-2">
                   <span className="w-2 h-2 rounded-full bg-amber-400 inline-block" />
                   {selectedEco.status === 'Approved'
-                    ? 'Applied Changes'
+                    ? 'Approved changes'
                     : 'Proposed Changes — Approver Review'}
                 </h3>
 

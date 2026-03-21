@@ -13,7 +13,8 @@ const PORT = process.env.BACKEND_PORT || 5000;
 
 const ECO_ALLOWED_CREATE_ROLES = new Set(['Admin', 'Engineering User']);
 const ECO_ALLOWED_REVIEW_ROLES  = new Set(['Admin', 'Approver']);
-const ECO_ALLOWED_STATUSES      = new Set(['Draft', 'Reviewed', 'Rejected', 'Approved', 'New', 'In Progress']);
+// Must match PostgreSQL enum "EcoRequestStatus" (see prisma/schema.prisma)
+const ECO_ALLOWED_STATUSES      = new Set(['Draft', 'Reviewed', 'Rejected', 'Approved']);
 const WRITE_ROLES               = new Set(['Admin', 'Engineering User']);
 
 // ─── Middleware ───────────────────────────────────────────────────────────────
@@ -763,7 +764,7 @@ app.patch('/api/eco-requests/:id/status', async (req, res) => {
 });
 
 // ════════════════════════════════════════════════════════════════════════════
-//  ECO STAGE ADVANCE  (move ECO to next stage or mark Applied)
+//  ECO STAGE ADVANCE  (move ECO to next stage; final stage sets Approved + version bump)
 // ════════════════════════════════════════════════════════════════════════════
 app.patch('/api/eco-requests/:id/advance-stage', async (req, res) => {
   try {
@@ -810,7 +811,7 @@ app.patch('/api/eco-requests/:id/advance-stage', async (req, res) => {
     const isFinalStage = nextStage.isFinal;
 
     // Advance to next stage
-    const newStatus = isFinalStage ? 'Applied' : eco.status;
+    const newStatus = isFinalStage ? 'Approved' : eco.status;
     const newStageStatus = isFinalStage ? 'applied' : 'open';
 
     const updated = await prisma.$queryRawUnsafe<any[]>(`
@@ -821,7 +822,7 @@ app.patch('/api/eco-requests/:id/advance-stage', async (req, res) => {
     `, nextStage.id, newStageStatus, newStatus, req.params.id);
 
     // If final stage, also run the version bump (reuse existing approval logic)
-    if (isFinalStage && eco.status !== 'Applied') {
+    if (isFinalStage && eco.status !== 'Approved') {
       // Trigger version creation by calling the approve path
       let proposedChanges: Record<string, any> = {};
       try {

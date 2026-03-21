@@ -6,7 +6,7 @@ import { toast } from 'sonner'
 
 // ─── Types ─────────────────────────────────────────────────────────────────────
 type DashboardClientProps = { userName: string; userRole: string; canCreateEco: boolean }
-type EcoStatus = 'Draft' | 'Reviewed' | 'Rejected' | 'Approved' | 'Applied'
+type EcoStatus = 'Draft' | 'Reviewed' | 'Rejected' | 'Approved'
 
 type EcoRecord = {
     id: string; ecoCode: string; title: string; ecoType: string
@@ -20,8 +20,7 @@ type EcoRecord = {
 const statusBadge: Record<string, string> = {
     Draft:    'bg-white border border-gray-300 text-gray-700',
     Reviewed: 'bg-blue-50 border border-blue-300 text-blue-700',
-    Approved: 'bg-green-50 border border-green-300 text-green-700',
-    Applied:  'bg-purple-100 border border-purple-300 text-purple-700 font-bold',
+    Approved: 'bg-green-50 border border-green-300 text-green-700 font-bold',
     Rejected: 'bg-red-50 border border-red-300 text-red-700',
 }
 // ─── Main ──────────────────────────────────────────────────────────────────────

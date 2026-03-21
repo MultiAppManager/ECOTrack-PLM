@@ -44,7 +44,6 @@ const STATUS_COLORS: Record<string, string> = {
   Draft: '#64748b',
   Reviewed: '#3b82f6',
   Approved: '#10b981',
-  Applied: '#8b5cf6',
   Rejected: '#ef4444',
 }
 
@@ -414,7 +413,7 @@ const AdminDashboardClient = () => {
                       >
                         <span
                           className={`shrink-0 px-2 py-0.5 rounded-full text-[10px] font-bold ${
-                            eco.status === 'Approved' || eco.status === 'Applied'
+                            eco.status === 'Approved'
                               ? 'bg-emerald-100 text-emerald-700'
                               : eco.status === 'Rejected'
                                 ? 'bg-red-100 text-red-700'

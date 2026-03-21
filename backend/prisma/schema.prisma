@@ -75,6 +75,20 @@ model Verification {
   @@map("verification")
 }
 
+/// Lifecycle of a product version row (not ECO approval)
+enum ProductStatus {
+  Active
+  Archived
+}
+
+/// ECO workflow — only these four statuses
+enum EcoRequestStatus {
+  Draft
+  Reviewed
+  Rejected
+  Approved
+}
+
 // ─── Product Master ───────────────────────────────────────────────────────────
 // Each row IS a specific version. productCode groups all versions of the same product.
 model Product {
@@ -85,7 +99,7 @@ model Product {
   costPrice      Decimal  @default(0)   @db.Decimal(15, 2)
   attachments    Json     @default("[]") // [{name, type, size}]
   version        Int      @default(1)
-  status         String   @default("Active")   // "Active" | "Archived"
+  status         ProductStatus @default(Active)
   isLatest       Boolean  @default(true)        // true only on the newest version
   versionDiff    Json?                          // null for v1; {field:{from,to}} map for bumped versions
   priceDifference Decimal? @db.Decimal(15, 2)  // salePrice delta vs previous version (null for v1)
@@ -136,7 +150,7 @@ model EcoRequest {
   requestedBy   String
   effectiveDate DateTime?
   versionUpdate Boolean   @default(false)
-  status        String    @default("Draft")  // Draft | Reviewed | Approved | Rejected | Applied
+  status        EcoRequestStatus @default(Draft)
   stageId       String?   // FK → eco_stage.id (current stage)
   stageStatus   String    @default("open")  // open | approved | applied
   changes       Json?
