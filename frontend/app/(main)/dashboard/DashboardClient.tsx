@@ -9,7 +9,7 @@ type DashboardClientProps = {
     canCreateEco: boolean
 }
 
-type EcoStatus = 'New' | 'In Progress' | 'Reviewed' | 'Rejected' | 'Approved'
+type EcoStatus = 'Draft' | 'Reviewed' | 'Rejected' | 'Approved'
 
 type EcoRecord = {
     id: string
@@ -60,10 +60,17 @@ const DashboardClient = ({ userName, userRole, canCreateEco }: DashboardClientPr
     const [ecoUser, setEcoUser] = useState(userName || '')
     const [effectiveDate, setEffectiveDate] = useState('')
     const [versionUpdate, setVersionUpdate] = useState(false)
-    const [status, setStatus] = useState<EcoStatus>('New')
+    const [status, setStatus] = useState<EcoStatus>('Draft')
     const [isSaving, setIsSaving] = useState(false)
     const [isLoading, setIsLoading] = useState(true)
+    const [selectedEcoId, setSelectedEcoId] = useState<string | null>(null)
     const canReviewEco = userRole === 'Approver' || userRole === 'Admin'
+    const stageApprovalRequired: Record<EcoStatus, boolean> = {
+        Draft: false,
+        Reviewed: true,
+        Approved: false,
+        Rejected: false,
+    }
 
     const loadEcoRequests = async () => {
         try {
@@ -106,7 +113,7 @@ const DashboardClient = ({ userName, userRole, canCreateEco }: DashboardClientPr
         setEcoUser(userName || '')
         setEffectiveDate('')
         setVersionUpdate(false)
-        setStatus('New')
+        setStatus('Draft')
     }
 
     const handleSave = async () => {
@@ -134,7 +141,7 @@ const DashboardClient = ({ userName, userRole, canCreateEco }: DashboardClientPr
                     user: ecoUser.trim(),
                     effectiveDate: effectiveDate || null,
                     versionUpdate,
-                    status,
+                    status: 'Draft',
                 }),
             })
             const data = await response.json()
@@ -177,9 +184,21 @@ const DashboardClient = ({ userName, userRole, canCreateEco }: DashboardClientPr
         }
     }
 
+    const handleValidateOrApprove = async (record: EcoRecord) => {
+        if (record.status === 'Draft') {
+            await updateEcoStatus(record.id, 'Reviewed')
+            return
+        }
+        if (record.status === 'Reviewed') {
+            await updateEcoStatus(record.id, 'Approved')
+        }
+    }
+
+    const selectedEco = ecoRecords.find((row) => row.id === selectedEcoId) || null
+
     return (
-        <div className='min-h-screen p-6'>
-            <div className='max-w-7xl mx-auto space-y-5'>
+        <div className='min-h-screen p-6 overflow-x-auto'>
+            <div className='max-w-7xl min-w-[980px] mx-auto space-y-5'>
                 <div className='bg-white rounded-2xl border-2 border-purple-200 shadow-sm overflow-hidden'>
                     <div className='px-5 py-3 border-b border-purple-200 flex items-center justify-between gap-3'>
                         <h1 className='text-base md:text-lg font-semibold text-purple-700'>
@@ -190,7 +209,7 @@ const DashboardClient = ({ userName, userRole, canCreateEco }: DashboardClientPr
                         </div>
                     </div>
 
-                    <div className='px-5 py-3 border-b border-purple-100 flex flex-wrap items-center gap-3'>
+                    <div className='px-5 py-3 border-b border-purple-100 flex items-center gap-3'>
                         {canCreateEco && (
                             <button
                                 onClick={() => setShowNewForm(true)}
@@ -213,10 +232,10 @@ const DashboardClient = ({ userName, userRole, canCreateEco }: DashboardClientPr
                         <table className='w-full min-w-[700px]'>
                             <thead className='bg-purple-50 border-b border-purple-200'>
                                 <tr>
-                                    <th className='text-left p-3 font-semibold text-purple-800'>Name</th>
-                                    <th className='text-left p-3 font-semibold text-purple-800'>ECO Type</th>
-                                    <th className='text-left p-3 font-semibold text-purple-800'>Product</th>
-                                    <th className='text-left p-3 font-semibold text-purple-800'>Status</th>
+                                    <th className='text-left p-3 font-semibold text-purple-800 whitespace-nowrap'>Name</th>
+                                    <th className='text-left p-3 font-semibold text-purple-800 whitespace-nowrap'>ECO Type</th>
+                                    <th className='text-left p-3 font-semibold text-purple-800 whitespace-nowrap'>Product</th>
+                                    <th className='text-left p-3 font-semibold text-purple-800 whitespace-nowrap'>Status</th>
                                 </tr>
                             </thead>
                             <tbody>
@@ -234,23 +253,56 @@ const DashboardClient = ({ userName, userRole, canCreateEco }: DashboardClientPr
                                     </tr>
                                 ) : (
                                     ecoRecords.map((record) => (
-                                        <tr key={record.id} className='border-b border-gray-100'>
-                                            <td className='p-3 text-sm text-gray-700'>{record.title}</td>
-                                            <td className='p-3 text-sm text-gray-700'>{record.ecoType}</td>
-                                            <td className='p-3 text-sm text-gray-700'>{record.product}</td>
+                                        <tr
+                                            key={record.id}
+                                            onClick={() => setSelectedEcoId(record.id)}
+                                            className={`border-b border-gray-100 cursor-pointer hover:bg-purple-50 ${
+                                                selectedEcoId === record.id ? 'bg-purple-50' : ''
+                                            }`}
+                                        >
+                                            <td className='p-3 text-sm text-gray-700 whitespace-nowrap'>{record.title}</td>
+                                            <td className='p-3 text-sm text-gray-700 whitespace-nowrap'>{record.ecoType}</td>
+                                            <td className='p-3 text-sm text-gray-700 whitespace-nowrap'>{record.product}</td>
                                             <td className='p-3 text-sm'>
                                                 {canReviewEco ? (
-                                                    <select
-                                                        value={record.status}
-                                                        onChange={(e) => updateEcoStatus(record.id, e.target.value as EcoStatus)}
-                                                        className='border border-purple-300 rounded-md px-2 py-1 text-xs font-semibold text-gray-700 bg-white'
-                                                    >
-                                                        <option value='New'>New</option>
-                                                        <option value='In Progress'>In Progress</option>
-                                                        <option value='Reviewed'>Reviewed</option>
-                                                        <option value='Rejected'>Rejected</option>
-                                                        <option value='Approved'>Approved</option>
-                                                    </select>
+                                                    <div className='flex items-center gap-2'>
+                                                        <span className='inline-flex items-center px-2 py-1 rounded-full text-xs font-semibold bg-white border border-gray-300 text-gray-700'>
+                                                            {record.status}
+                                                        </span>
+                                                        {record.status === 'Draft' && (
+                                                            <button
+                                                                onClick={(e) => {
+                                                                    e.stopPropagation()
+                                                                    updateEcoStatus(record.id, 'Reviewed')
+                                                                }}
+                                                                className='px-2 py-1 rounded-md text-[11px] font-semibold border border-purple-300 text-purple-700 hover:bg-purple-50'
+                                                            >
+                                                                Review
+                                                            </button>
+                                                        )}
+                                                        {record.status === 'Reviewed' && (
+                                                            <>
+                                                                <button
+                                                                    onClick={(e) => {
+                                                                        e.stopPropagation()
+                                                                        updateEcoStatus(record.id, 'Approved')
+                                                                    }}
+                                                                    className='px-2 py-1 rounded-md text-[11px] font-semibold border border-green-300 text-green-700 hover:bg-green-50'
+                                                                >
+                                                                    Approve
+                                                                </button>
+                                                                <button
+                                                                    onClick={(e) => {
+                                                                        e.stopPropagation()
+                                                                        updateEcoStatus(record.id, 'Rejected')
+                                                                    }}
+                                                                    className='px-2 py-1 rounded-md text-[11px] font-semibold border border-red-300 text-red-700 hover:bg-red-50'
+                                                                >
+                                                                    Reject
+                                                                </button>
+                                                            </>
+                                                        )}
+                                                    </div>
                                                 ) : (
                                                     <span className='inline-flex items-center px-2 py-1 rounded-full text-xs font-semibold bg-white border border-gray-300 text-gray-700'>
                                                         {record.status}
@@ -269,7 +321,7 @@ const DashboardClient = ({ userName, userRole, canCreateEco }: DashboardClientPr
                     <div className='bg-white rounded-2xl border-2 border-purple-200 shadow-sm p-5'>
                         <div className='flex items-center gap-3 mb-5'>
                             <button
-                                onClick={() => setStatus('In Progress')}
+                                onClick={() => setStatus('Reviewed')}
                                 className='px-4 py-1.5 rounded-lg bg-purple-600 text-white text-sm font-semibold hover:bg-purple-700 transition-colors'
                             >
                                 Start
@@ -289,8 +341,8 @@ const DashboardClient = ({ userName, userRole, canCreateEco }: DashboardClientPr
                             </button>
                         </div>
 
-                        <div className='grid grid-cols-1 md:grid-cols-2 gap-4'>
-                            <div className='md:col-span-2'>
+                        <div className='grid grid-cols-2 gap-4'>
+                            <div className='col-span-2'>
                                 <label className='block text-sm font-semibold text-gray-700 mb-1'>Title *</label>
                                 <input
                                     value={title}
@@ -327,7 +379,7 @@ const DashboardClient = ({ userName, userRole, canCreateEco }: DashboardClientPr
                                 </select>
                             </div>
 
-                            <div className='md:col-span-2'>
+                            <div className='col-span-2'>
                                 <label className='block text-sm font-semibold text-gray-700 mb-1'>Bill of Materials *</label>
                                 <select
                                     value={bom}
@@ -362,7 +414,7 @@ const DashboardClient = ({ userName, userRole, canCreateEco }: DashboardClientPr
                                 />
                             </div>
 
-                            <div className='md:col-span-2'>
+                            <div className='col-span-2'>
                                 <label className='inline-flex items-center gap-2 text-sm font-semibold text-gray-700'>
                                     <input
                                         type='checkbox'
@@ -380,6 +432,63 @@ const DashboardClient = ({ userName, userRole, canCreateEco }: DashboardClientPr
                 {!canCreateEco && (
                     <div className='bg-white rounded-xl border border-purple-200 p-4 text-sm text-gray-600'>
                         Your role (`{userRole}`) has view-only access for ECO creation.
+                    </div>
+                )}
+
+                {selectedEco && (
+                    <div className='bg-white rounded-2xl border-2 border-purple-200 shadow-sm p-5'>
+                        <div className='flex items-center gap-3 mb-5'>
+                            {stageApprovalRequired[selectedEco.status] ? (
+                                <button
+                                    onClick={() => handleValidateOrApprove(selectedEco)}
+                                    disabled={!canReviewEco}
+                                    className='px-4 py-1.5 rounded-lg border-2 border-purple-300 text-purple-700 text-sm font-semibold bg-white hover:bg-purple-50 disabled:opacity-50 disabled:cursor-not-allowed'
+                                >
+                                    Approval
+                                </button>
+                            ) : (
+                                <button
+                                    onClick={() => handleValidateOrApprove(selectedEco)}
+                                    disabled={!canReviewEco || selectedEco.status === 'Rejected' || selectedEco.status === 'Approved'}
+                                    className='px-4 py-1.5 rounded-lg border-2 border-green-300 text-green-700 text-sm font-semibold bg-white hover:bg-green-50 disabled:opacity-50 disabled:cursor-not-allowed'
+                                >
+                                    Validate
+                                </button>
+                            )}
+
+
+                            <div className='ml-auto inline-flex items-center px-2.5 py-1 rounded-full bg-purple-100 border border-purple-200 text-xs font-semibold text-purple-700'>
+                                {selectedEco.status === 'Approved' ? 'Applied' : selectedEco.status}
+                            </div>
+                        </div>
+
+                        <div className='grid grid-cols-2 gap-4 mb-6'>
+                            <div className='col-span-2'>
+                                <label className='block text-sm font-semibold text-gray-700 mb-1'>Title*</label>
+                                <input value={selectedEco.title} readOnly className='w-full border-2 border-purple-200 p-2.5 rounded-lg bg-gray-50 text-gray-700' />
+                            </div>
+                            <div>
+                                <label className='block text-sm font-semibold text-gray-700 mb-1'>ECO Type*</label>
+                                <input value={selectedEco.ecoType} readOnly className='w-full border-2 border-purple-200 p-2.5 rounded-lg bg-gray-50 text-gray-700' />
+                            </div>
+                            <div>
+                                <label className='block text-sm font-semibold text-gray-700 mb-1'>Product*</label>
+                                <input value={selectedEco.product} readOnly className='w-full border-2 border-purple-200 p-2.5 rounded-lg bg-gray-50 text-gray-700' />
+                            </div>
+                            <div className='col-span-2'>
+                                <label className='block text-sm font-semibold text-gray-700 mb-1'>Bill of Materials*</label>
+                                <input value={selectedEco.bom} readOnly className='w-full border-2 border-purple-200 p-2.5 rounded-lg bg-gray-50 text-gray-700' />
+                            </div>
+                            <div>
+                                <label className='block text-sm font-semibold text-gray-700 mb-1'>User*</label>
+                                <input value={selectedEco.user} readOnly className='w-full border-2 border-purple-200 p-2.5 rounded-lg bg-gray-50 text-gray-700' />
+                            </div>
+                            <div>
+                                <label className='block text-sm font-semibold text-gray-700 mb-1'>Effective Date</label>
+                                <input value={selectedEco.effectiveDate || '-'} readOnly className='w-full border-2 border-purple-200 p-2.5 rounded-lg bg-gray-50 text-gray-700' />
+                            </div>
+                        </div>
+
                     </div>
                 )}
             </div>

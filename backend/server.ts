@@ -13,7 +13,7 @@ const app = express();
 const PORT = process.env.BACKEND_PORT || 5000;
 const ECO_ALLOWED_CREATE_ROLES = new Set(['Admin', 'Engineering User']);
 const ECO_ALLOWED_REVIEW_ROLES = new Set(['Admin', 'Approver']);
-const ECO_ALLOWED_STATUSES = new Set(['New', 'In Progress', 'Reviewed', 'Rejected', 'Approved']);
+const ECO_ALLOWED_STATUSES = new Set(['Draft', 'Reviewed', 'Rejected', 'Approved', 'New', 'In Progress']);
 
 // Middleware
 app.use(cors({
@@ -242,7 +242,7 @@ app.post('/api/eco-requests', async (req, res) => {
     const count = countRows?.[0]?.count || 0;
     const ecoCode = `ECO-${String(count + 1).padStart(3, '0')}`;
     const id = randomUUID();
-    const nextStatus = ECO_ALLOWED_STATUSES.has(status) ? String(status) : 'New';
+    const nextStatus = ECO_ALLOWED_STATUSES.has(status) ? String(status) : 'Draft';
 
     await prisma.$executeRaw`
       INSERT INTO eco_request (
@@ -393,6 +393,189 @@ app.use('/api/send-otp', async (req, res) => {
     });
   }
 });
+// ==================== PRODUCT MASTER API ====================
+
+const PRODUCT_ALLOWED_WRITE_ROLES = new Set(['Admin', 'Engineering User']);
+
+// Seed dummy products if table is empty
+async function seedDummyProducts() {
+  try {
+    const countRows = await prisma.$queryRawUnsafe<{ count: number }[]>(`SELECT COUNT(*)::int AS count FROM product`);
+    if ((countRows?.[0]?.count || 0) === 0) {
+      const dummyProducts = [
+        { name: 'Hydraulic Pump Assembly', salePrice: 1250.00, costPrice: 780.00, version: 3, archived: false },
+        { name: 'CNC Spindle Motor Unit', salePrice: 3400.00, costPrice: 2100.00, version: 2, archived: false },
+        { name: 'Industrial Gearbox 5-Speed', salePrice: 2750.00, costPrice: 1680.00, version: 5, archived: false },
+        { name: 'Servo Control Module X200', salePrice: 890.00, costPrice: 540.00, version: 1, archived: false },
+        { name: 'Pneumatic Actuator Gen-3', salePrice: 620.00, costPrice: 390.00, version: 3, archived: false },
+        { name: 'Conveyor Drive Roller Kit', salePrice: 480.00, costPrice: 290.00, version: 1, archived: false },
+        { name: 'Linear Ball Screw Assembly', salePrice: 1100.00, costPrice: 660.00, version: 2, archived: false },
+        { name: 'Rotary Encoder Module', salePrice: 340.00, costPrice: 195.00, version: 4, archived: false },
+        { name: 'Pressure Valve XR-9 Pro', salePrice: 560.00, costPrice: 320.00, version: 2, archived: false },
+        { name: 'Legacy Conveyor Belt v1', salePrice: 200.00, costPrice: 130.00, version: 1, archived: true },
+      ];
+
+      for (const p of dummyProducts) {
+        const { randomUUID: uuid } = await import('crypto');
+        const id = uuid();
+        await prisma.$executeRawUnsafe(
+          `INSERT INTO product (id, name, "salePrice", "costPrice", attachments, "currentVersion", status, "createdAt", "updatedAt")
+           VALUES ($1, $2, $3, $4, '[]'::json, $5, $6, NOW(), NOW())`,
+          id, p.name, p.salePrice, p.costPrice, p.version, p.archived ? 'Archived' : 'Active'
+        );
+      }
+      console.log('✅ Seeded 10 dummy products');
+    }
+  } catch (error) {
+    console.error('Error seeding dummy products:', error);
+  }
+}
+
+// GET all products
+app.get('/api/products', async (req, res) => {
+  try {
+    const session = await auth.api.getSession({ headers: req.headers as any });
+    if (!session) return res.status(401).json({ error: 'Unauthorized' });
+
+    const products = await prisma.$queryRawUnsafe(`
+      SELECT id, name, "salePrice", "costPrice", attachments, "currentVersion", status, "createdAt", "updatedAt"
+      FROM product ORDER BY "createdAt" DESC
+    `);
+    return res.json(products);
+  } catch (error: any) {
+    return res.status(500).json({ error: error.message || 'Failed to fetch products' });
+  }
+});
+
+// GET single product by ID
+app.get('/api/products/:id', async (req, res) => {
+  try {
+    const session = await auth.api.getSession({ headers: req.headers as any });
+    if (!session) return res.status(401).json({ error: 'Unauthorized' });
+
+    const rows = await prisma.$queryRawUnsafe<any[]>(`
+      SELECT id, name, "salePrice", "costPrice", attachments, "currentVersion", status, "createdAt", "updatedAt"
+      FROM product WHERE id = $1 LIMIT 1
+    `, req.params.id);
+    if (!rows?.[0]) return res.status(404).json({ error: 'Product not found' });
+    return res.json(rows[0]);
+  } catch (error: any) {
+    return res.status(500).json({ error: error.message || 'Failed to fetch product' });
+  }
+});
+
+// POST create product (Admin + Engineering User only)
+app.post('/api/products', async (req, res) => {
+  try {
+    const session = await auth.api.getSession({ headers: req.headers as any });
+    if (!session) return res.status(401).json({ error: 'Unauthorized' });
+    if (!PRODUCT_ALLOWED_WRITE_ROLES.has(session.user.role || ''))
+      return res.status(403).json({ error: 'Only Admin or Engineering User can create products' });
+
+    const { name, salePrice, costPrice, attachments } = req.body || {};
+    if (!name || String(name).length > 255)
+      return res.status(400).json({ error: 'Product name is required (max 255 chars)' });
+
+    const id = randomUUID();
+    const attachJson = JSON.stringify(Array.isArray(attachments) ? attachments : []);
+    const sp = parseFloat(salePrice) || 0;
+    const cp = parseFloat(costPrice) || 0;
+
+    await prisma.$executeRawUnsafe(
+      `INSERT INTO product (id, name, "salePrice", "costPrice", attachments, "currentVersion", status, "createdAt", "updatedAt")
+       VALUES ($1, $2, $3, $4, $5::json, 1, 'Active', NOW(), NOW())`,
+      id, String(name), sp, cp, attachJson
+    );
+
+    const rows = await prisma.$queryRawUnsafe<any[]>(`SELECT * FROM product WHERE id = $1`, id);
+    return res.status(201).json(rows[0]);
+  } catch (error: any) {
+    return res.status(500).json({ error: error.message || 'Failed to create product' });
+  }
+});
+
+// PUT update product (name, prices, attachments — version is read-only, managed by ECO)
+app.put('/api/products/:id', async (req, res) => {
+  try {
+    const session = await auth.api.getSession({ headers: req.headers as any });
+    if (!session) return res.status(401).json({ error: 'Unauthorized' });
+    if (!PRODUCT_ALLOWED_WRITE_ROLES.has(session.user.role || ''))
+      return res.status(403).json({ error: 'Only Admin or Engineering User can update products' });
+
+    const { id } = req.params;
+    const existing = await prisma.$queryRawUnsafe<any[]>(`SELECT status FROM product WHERE id = $1`, id);
+    if (!existing?.[0]) return res.status(404).json({ error: 'Product not found' });
+    if (existing[0].status === 'Archived')
+      return res.status(400).json({ error: 'Archived products are read-only' });
+
+    const { name, salePrice, costPrice, attachments } = req.body || {};
+    if (!name || String(name).length > 255)
+      return res.status(400).json({ error: 'Product name is required (max 255 chars)' });
+
+    const attachJson = JSON.stringify(Array.isArray(attachments) ? attachments : []);
+    const sp = parseFloat(salePrice) || 0;
+    const cp = parseFloat(costPrice) || 0;
+
+    const rows = await prisma.$queryRawUnsafe<any[]>(`
+      UPDATE product
+      SET name = $1, "salePrice" = $2, "costPrice" = $3, attachments = $4::json, "updatedAt" = NOW()
+      WHERE id = $5
+      RETURNING id, name, "salePrice", "costPrice", attachments, "currentVersion", status, "createdAt", "updatedAt"
+    `, String(name), sp, cp, attachJson, id);
+
+    return res.json(rows[0]);
+  } catch (error: any) {
+    return res.status(500).json({ error: error.message || 'Failed to update product' });
+  }
+});
+
+// PATCH archive / restore
+app.patch('/api/products/:id/status', async (req, res) => {
+  try {
+    const session = await auth.api.getSession({ headers: req.headers as any });
+    if (!session) return res.status(401).json({ error: 'Unauthorized' });
+    if (!PRODUCT_ALLOWED_WRITE_ROLES.has(session.user.role || ''))
+      return res.status(403).json({ error: 'Only Admin or Engineering User can archive products' });
+
+    const { id } = req.params;
+    const { status } = req.body || {};
+    if (status !== 'Active' && status !== 'Archived')
+      return res.status(400).json({ error: 'Status must be Active or Archived' });
+
+    const rows = await prisma.$queryRawUnsafe<any[]>(`
+      UPDATE product SET status = $1, "updatedAt" = NOW() WHERE id = $2
+      RETURNING id, name, "salePrice", "costPrice", attachments, "currentVersion", status, "createdAt", "updatedAt"
+    `, status, id);
+
+    if (!rows?.[0]) return res.status(404).json({ error: 'Product not found' });
+    return res.json(rows[0]);
+  } catch (error: any) {
+    return res.status(500).json({ error: error.message || 'Failed to update product status' });
+  }
+});
+
+// PATCH increment version (triggered by ECO approval)
+app.patch('/api/products/:id/version', async (req, res) => {
+  try {
+    const session = await auth.api.getSession({ headers: req.headers as any });
+    if (!session) return res.status(401).json({ error: 'Unauthorized' });
+
+    const { id } = req.params;
+    const rows = await prisma.$queryRawUnsafe<any[]>(`
+      UPDATE product SET "currentVersion" = "currentVersion" + 1, "updatedAt" = NOW()
+      WHERE id = $1 AND status = 'Active'
+      RETURNING id, name, "salePrice", "costPrice", attachments, "currentVersion", status, "createdAt", "updatedAt"
+    `, id);
+
+    if (!rows?.[0]) return res.status(404).json({ error: 'Product not found or archived' });
+    return res.json(rows[0]);
+  } catch (error: any) {
+    return res.status(500).json({ error: error.message || 'Failed to increment version' });
+  }
+});
+
+// ==================== / PRODUCT MASTER API ====================
+
 // Sync password hashes from Account table to User table
 app.post('/api/sync-passwords', async (req, res) => {
   try {
@@ -446,4 +629,6 @@ app.get('/health', (req, res) => {
 app.listen(PORT, () => {
   console.log(`🚀 Backend server running on http://localhost:${PORT}`);
   console.log(`📧 Auth endpoint: http://localhost:${PORT}/api/auth`);
+  // Seed dummy products if needed
+  seedDummyProducts();
 });

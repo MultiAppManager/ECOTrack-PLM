@@ -79,6 +79,22 @@ model Verification {
   @@map("verification")
 }
 
+model Product {
+  id             String   @id @default(cuid())
+  name           String   @db.VarChar(255)
+  salePrice      Decimal  @default(0) @db.Decimal(15, 2)
+  costPrice      Decimal  @default(0) @db.Decimal(15, 2)
+  attachments    Json     @default("[]")
+  currentVersion Int      @default(1)
+  status         String   @default("Active") // "Active" | "Archived"
+  createdAt      DateTime @default(now())
+  updatedAt      DateTime @updatedAt
+
+  @@index([status])
+  @@index([name])
+  @@map("product")
+}
+
 model EcoRequest {
   id            String   @id @default(cuid())
   ecoCode       String   @unique

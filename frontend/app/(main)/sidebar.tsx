@@ -47,17 +47,17 @@ const Sidebar = () => {
 
     const menuItems: Array<{ label: string; href: string; show: boolean; enabled?: boolean }> = [
         { label: 'Dashboard', href: '/dashboard', show: true, enabled: true },
-        { label: 'Products', href: '/dashboard', show: isEngineeringUser || isOperationsUser || isAdmin, enabled: false },
+        { label: 'Products', href: '/products', show: isEngineeringUser || isOperationsUser || isAdmin, enabled: true },
         { label: 'Bills of Materials', href: '/dashboard', show: isEngineeringUser || isOperationsUser || isAdmin, enabled: false },
         { label: 'Engineering Change Orders (ECO)', href: '/eco', show: true, enabled: true },
-        { label: 'Reports', href: '/dashboard', show: true, enabled: false },
+        { label: 'Reports', href: '/reports', show: true, enabled: true },
         { label: 'ECO Stages', href: '/dashboard', show: isAdmin, enabled: false },
         { label: 'Approval Rules', href: '/dashboard', show: isAdmin || isApprover, enabled: false },
     ]
     return (
         <>
             {/* Left navigation panel */}
-            <aside className='w-64 h-screen bg-[#060d22] text-white border-r border-[#10274f] flex flex-col'>
+            <aside className='w-64 h-screen sticky top-0 bg-[#060d22] text-white border-r border-[#10274f] flex flex-col'>
                 <div className='bg-gradient-to-b from-[#8b11dc] to-[#a915ff] px-3 py-3 border-b border-white/10'>
                     {/* User summary */}
                     <div className='bg-white/10 border border-white/20 rounded-2xl p-2.5 shadow-sm'>
@@ -94,7 +94,7 @@ const Sidebar = () => {
                                         onClick={() => router.push(item.href)}
                                         className={[
                                             'w-full flex items-center gap-3 px-3 py-2.5 rounded-lg transition-colors duration-200 cursor-pointer focus:outline-none focus:ring-2 focus:ring-[#2d5fb4]',
-                                            pathname === item.href
+                                            pathname === item.href || pathname.startsWith(item.href + '/')
                                                 ? 'bg-[#131f3a] text-white border border-[#1f3c73]'
                                                 : 'text-white/85 hover:bg-[#0f1a32]',
                                         ].join(' ')}

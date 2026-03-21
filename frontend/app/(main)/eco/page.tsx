@@ -1,12 +1,12 @@
 import { getServerSession } from '@/lib/get-session'
-import { unauthorized } from 'next/navigation'
+import { redirect } from 'next/navigation'
 import DashboardClient from '../dashboard/DashboardClient'
 
 const EcoPage = async () => {
   const session = await getServerSession()
   const user = session?.user
   if (!user) {
-    unauthorized()
+    redirect('/sign-in')
   }
 
   const userRole = user.role || 'Operations User'
