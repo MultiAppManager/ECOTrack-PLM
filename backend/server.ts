@@ -164,20 +164,24 @@ app.get('/api/dashboard/stats', async (req, res) => {
 //  PRODUCT MASTER
 // ════════════════════════════════════════════════════════════════════════════
 
-// GET all products — role-filtered
-// Operations User: only isLatest=true AND status='Active'
-// Admin / Engineering / Approver: all rows (full version history)
+// GET all products — default: only current Active + Latest per productCode (live list)
+// ?scope=all — Admin/Engineering only: full version history (flat list)
+// ?scope=archived — all users: rows with status Archived (for “Archived” tab)
 app.get('/api/products', async (req, res) => {
   try {
     const session = await auth.api.getSession({ headers: req.headers as any });
     if (!session) return res.status(401).json({ error: 'Unauthorized' });
 
+    const scope = String(req.query.scope || 'latest');
     const role = session.user.role || 'Operations User';
-    const isOperations = role === 'Operations User';
+    const canSeeAll = WRITE_ROLES.has(role);
 
-    const whereClause = isOperations
-      ? `WHERE "isLatest" = true AND status = 'Active'`
-      : '';
+    let whereClause = `WHERE "isLatest" = true AND status = 'Active'`;
+    if (scope === 'archived') {
+      whereClause = `WHERE status = 'Archived'`;
+    } else if (scope === 'all' && canSeeAll) {
+      whereClause = '';
+    }
 
     const products = await prisma.$queryRawUnsafe(`
       SELECT id, "productCode", name, "salePrice", "costPrice", attachments,
@@ -186,6 +190,21 @@ app.get('/api/products', async (req, res) => {
       ORDER BY "productCode" ASC, version DESC
     `);
     return res.json(products);
+  } catch (e: any) { return res.status(500).json({ error: e.message }); }
+});
+
+// Product list stats (for dashboard cards)
+app.get('/api/products/stats', async (req, res) => {
+  try {
+    const session = await auth.api.getSession({ headers: req.headers as any });
+    if (!session) return res.status(401).json({ error: 'Unauthorized' });
+    const rows = await prisma.$queryRawUnsafe<{ latestActive: number; archivedRows: number }[]>(`
+      SELECT
+        COUNT(*) FILTER (WHERE "isLatest" = true AND status = 'Active')::int AS "latestActive",
+        COUNT(*) FILTER (WHERE status = 'Archived')::int AS "archivedRows"
+      FROM product
+    `);
+    return res.json(rows[0] || { latestActive: 0, archivedRows: 0 });
   } catch (e: any) { return res.status(500).json({ error: e.message }); }
 });
 
@@ -248,7 +267,7 @@ app.get('/api/products/versions-by-id/:id', async (req, res) => {
       SELECT id, "productCode", name, "salePrice", "costPrice", attachments,
              version, status, "isLatest", "versionDiff", "priceDifference", "itemDifference", "createdAt", "updatedAt"
       FROM product WHERE "productCode" = $1
-      ORDER BY version DESC
+      ORDER BY version DESC, "createdAt" DESC
     `, ref[0].productCode);
     return res.json(rows);
   } catch (e: any) { return res.status(500).json({ error: e.message }); }
@@ -332,15 +351,21 @@ app.patch('/api/products/:id/status', async (req, res) => {
 //  BILL OF MATERIALS
 // ════════════════════════════════════════════════════════════════════════════
 
-// GET all BOMs — role-filtered
+// GET all BOMs — default: only current Active + Latest revision (live DB, one row per BOM family)
+// ?scope=all — Admin/Engineering only: all rows (all versions / archived) for audit
 app.get('/api/boms', async (req, res) => {
   try {
     const session = await auth.api.getSession({ headers: req.headers as any });
     if (!session) return res.status(401).json({ error: 'Unauthorized' });
 
+    const scope = String(req.query.scope || 'latest');
     const role = session.user.role || 'Operations User';
-    const isOperations = role === 'Operations User';
-    const whereClause = isOperations ? `WHERE "isLatest" = true AND status = 'Active'` : '';
+    const canSeeAll = WRITE_ROLES.has(role);
+
+    let whereClause = `WHERE "isLatest" = true AND status = 'Active'`;
+    if (scope === 'all' && canSeeAll) {
+      whereClause = '';
+    }
 
     const boms = await prisma.$queryRawUnsafe(`
       SELECT id, "bomCode", name, "productCode", version, components, notes, status, "isLatest", "versionDiff", "createdAt", "updatedAt"
@@ -351,13 +376,28 @@ app.get('/api/boms', async (req, res) => {
   } catch (e: any) { return res.status(500).json({ error: e.message }); }
 });
 
-// GET active latest BOMs — for ECO form dropdown
+// GET BOM dashboard stats (counts from DB — for list header cards)
+app.get('/api/boms/stats', async (req, res) => {
+  try {
+    const session = await auth.api.getSession({ headers: req.headers as any });
+    if (!session) return res.status(401).json({ error: 'Unauthorized' });
+    const rows = await prisma.$queryRawUnsafe<{ latestActive: number; archivedRows: number }[]>(`
+      SELECT
+        COUNT(*) FILTER (WHERE "isLatest" = true AND status = 'Active')::int AS "latestActive",
+        COUNT(*) FILTER (WHERE status = 'Archived')::int AS "archivedRows"
+      FROM bill_of_materials
+    `);
+    return res.json(rows[0] || { latestActive: 0, archivedRows: 0 });
+  } catch (e: any) { return res.status(500).json({ error: e.message }); }
+});
+
+// GET active latest BOMs — for ECO form dropdown (includes components for pre-fill)
 app.get('/api/boms/active-latest', async (req, res) => {
   try {
     const session = await auth.api.getSession({ headers: req.headers as any });
     if (!session) return res.status(401).json({ error: 'Unauthorized' });
     const boms = await prisma.$queryRawUnsafe(`
-      SELECT id, "bomCode", name, "productCode", version
+      SELECT id, "bomCode", name, "productCode", version, components, notes
       FROM bill_of_materials WHERE "isLatest" = true AND status = 'Active'
       ORDER BY name ASC
     `);
@@ -405,7 +445,7 @@ app.get('/api/boms/versions-by-id/:id', async (req, res) => {
     const rows = await prisma.$queryRawUnsafe<any[]>(`
       SELECT id, "bomCode", name, "productCode", version, components, notes, status, "isLatest", "versionDiff", "createdAt", "updatedAt"
       FROM bill_of_materials WHERE "bomCode" = $1
-      ORDER BY version DESC
+      ORDER BY version DESC, "createdAt" DESC
     `, ref[0].bomCode);
     return res.json(rows);
   } catch (e: any) { return res.status(500).json({ error: e.message }); }
@@ -594,13 +634,22 @@ app.patch('/api/eco-requests/:id/status', async (req, res) => {
           ? eco.changes : (eco.changes ? JSON.parse(eco.changes) : {});
       } catch { proposedChanges = {}; }
 
-      // ── Product: new version
+      // ── Product: new version (always base on current Active+Latest row for productCode — not stale eco.productId)
       if (eco.productId) {
-        const prodRows = await prisma.$queryRawUnsafe<any[]>(
-          `SELECT id, "productCode", name, "salePrice", "costPrice", attachments, version FROM product WHERE id = $1`, eco.productId
+        const refRows = await prisma.$queryRawUnsafe<any[]>(
+          `SELECT "productCode" FROM product WHERE id = $1 LIMIT 1`, eco.productId
         );
-        if (prodRows?.[0]) {
-          const old = prodRows[0];
+        if (refRows?.[0]) {
+          const productCode = refRows[0].productCode;
+          const activeRows = await prisma.$queryRawUnsafe<any[]>(
+            `SELECT id, "productCode", name, "salePrice", "costPrice", attachments, version FROM product
+             WHERE "productCode" = $1 AND "isLatest" = true AND status = 'Active' LIMIT 1`, productCode
+          );
+          const old = activeRows?.[0] ?? (await prisma.$queryRawUnsafe<any[]>(
+            `SELECT id, "productCode", name, "salePrice", "costPrice", attachments, version FROM product
+             WHERE "productCode" = $1 ORDER BY version DESC LIMIT 1`, productCode
+          ))?.[0];
+          if (old) {
           const newId = randomUUID();
           const newVersion = Number(old.version) + 1;
 
@@ -619,18 +668,13 @@ app.patch('/api/eco-requests/:id/status', async (req, res) => {
           if (JSON.stringify(newAttach) !== JSON.stringify(old.attachments))
                                                        diff.attachments = { from: old.attachments,     to: newAttach };
 
-          // priceDifference: newSalePrice − oldSalePrice (positive = price up, negative = price down)
           const priceDiff = parseFloat((newSalePrice - Number(old.salePrice)).toFixed(2));
-
-          // itemDifference: count of fields that actually changed
           const itemDiff = Object.keys(diff).length;
 
-          // Archive old version — only the old row, not creating a new one yet
           await prisma.$executeRawUnsafe(
             `UPDATE product SET "isLatest"=false, status='Archived', "updatedAt"=NOW() WHERE id=$1`, old.id
           );
 
-          // Insert new version — ONLY created here on approval
           await prisma.$executeRawUnsafe(
             `INSERT INTO product
                (id,"productCode",name,"salePrice","costPrice",attachments,version,status,"isLatest",
@@ -639,25 +683,45 @@ app.patch('/api/eco-requests/:id/status', async (req, res) => {
             newId, old.productCode, newName, newSalePrice, newCostPrice,
             JSON.stringify(newAttach), newVersion,
             itemDiff > 0 ? JSON.stringify(diff) : null,
-            itemDiff > 0 ? priceDiff : null,      // null if nothing changed
+            itemDiff > 0 ? priceDiff : null,
             itemDiff > 0 ? itemDiff : null
           );
+          // Ensure exactly one Active+Latest per productCode (fixes duplicate flags from stale ECO ids)
+          await prisma.$executeRawUnsafe(
+            `UPDATE product SET "isLatest"=false, status='Archived', "updatedAt"=NOW() WHERE "productCode"=$1 AND id <> $2`,
+            productCode, newId
+          );
           console.log(`✅ Product ${old.productCode} → v${newVersion} | priceDiff=${priceDiff} | itemDiff=${itemDiff}`);
+          }
         }
       }
 
       // ── BOM version bump ───────────────────────────────────────────────────
       if (eco.bomId) {
-        const bomRows = await prisma.$queryRawUnsafe<any[]>(
-          `SELECT id,"bomCode",name,"productCode",version,components,notes FROM bill_of_materials WHERE id = $1`, eco.bomId
+        const refRows = await prisma.$queryRawUnsafe<any[]>(
+          `SELECT "bomCode" FROM bill_of_materials WHERE id = $1 LIMIT 1`, eco.bomId
         );
-        if (bomRows?.[0]) {
-          const old = bomRows[0];
+        if (refRows?.[0]) {
+          const bomCode = refRows[0].bomCode;
+          // MUST use current active BOM (isLatest=true) so new version gets correct base
+          const activeRows = await prisma.$queryRawUnsafe<any[]>(
+            `SELECT id,"bomCode",name,"productCode",version,components,notes FROM bill_of_materials
+             WHERE "bomCode" = $1 AND "isLatest" = true AND status = 'Active' LIMIT 1`, bomCode
+          );
+          // Fallback: if no active (data inconsistency), use highest version for bomCode
+          const old = activeRows?.[0] ?? (await prisma.$queryRawUnsafe<any[]>(
+            `SELECT id,"bomCode",name,"productCode",version,components,notes FROM bill_of_materials
+             WHERE "bomCode" = $1 ORDER BY version DESC LIMIT 1`, bomCode
+          ))?.[0];
+          if (old) {
           const newId  = randomUUID();
           const newVersion = Number(old.version) + 1;
 
           const pc = proposedChanges || {};
-          const newComponents = pc.components !== undefined ? pc.components : (Array.isArray(old.components) ? old.components : []);
+          // ECO proposed components take precedence when present — user's intent for the new version
+          const newComponents = pc.components !== undefined
+            ? (Array.isArray(pc.components) ? pc.components : [])
+            : (Array.isArray(old.components) ? old.components : []);
           const newNotes      = pc.notes      !== undefined ? pc.notes      : old.notes;
           const newBomName    = pc.bomName    !== undefined ? pc.bomName    : old.name;
 
@@ -678,7 +742,12 @@ app.patch('/api/eco-requests/:id/status', async (req, res) => {
             JSON.stringify(newComponents), newNotes || null,
             Object.keys(diff).length > 0 ? JSON.stringify(diff) : null
           );
+          await prisma.$executeRawUnsafe(
+            `UPDATE bill_of_materials SET "isLatest"=false, status='Archived', "updatedAt"=NOW() WHERE "bomCode"=$1 AND id <> $2`,
+            old.bomCode, newId
+          );
           console.log(`✅ BOM ${old.bomCode} → v${newVersion}`, diff);
+          }
         }
       }
     }
@@ -742,7 +811,7 @@ app.patch('/api/eco-requests/:id/advance-stage', async (req, res) => {
 
     // Advance to next stage
     const newStatus = isFinalStage ? 'Applied' : eco.status;
-    const newStageStatus = isFinalStage ? 'applied' : (requiredApprovals.length > 0 ? 'open' : 'open');
+    const newStageStatus = isFinalStage ? 'applied' : 'open';
 
     const updated = await prisma.$queryRawUnsafe<any[]>(`
       UPDATE eco_request
@@ -761,11 +830,20 @@ app.patch('/api/eco-requests/:id/advance-stage', async (req, res) => {
       } catch { proposedChanges = {}; }
 
       if (eco.productId) {
-        const prodRows = await prisma.$queryRawUnsafe<any[]>(
-          `SELECT id,"productCode",name,"salePrice","costPrice",attachments,version FROM product WHERE id=$1`, eco.productId
+        const refRows = await prisma.$queryRawUnsafe<any[]>(
+          `SELECT "productCode" FROM product WHERE id=$1 LIMIT 1`, eco.productId
         );
-        if (prodRows?.[0]) {
-          const old = prodRows[0];
+        if (refRows?.[0]) {
+          const productCode = refRows[0].productCode;
+          const activeRows = await prisma.$queryRawUnsafe<any[]>(
+            `SELECT id,"productCode",name,"salePrice","costPrice",attachments,version FROM product
+             WHERE "productCode"=$1 AND "isLatest"=true AND status='Active' LIMIT 1`, productCode
+          );
+          const old = activeRows?.[0] ?? (await prisma.$queryRawUnsafe<any[]>(
+            `SELECT id,"productCode",name,"salePrice","costPrice",attachments,version FROM product
+             WHERE "productCode"=$1 ORDER BY version DESC LIMIT 1`, productCode
+          ))?.[0];
+          if (old) {
           const newId = randomUUID();
           const newVersion = Number(old.version) + 1;
           const pc = proposedChanges || {};
@@ -789,19 +867,35 @@ app.patch('/api/eco-requests/:id/advance-stage', async (req, res) => {
             itemDiff > 0 ? priceDiff : null,
             itemDiff > 0 ? itemDiff : null
           );
+          await prisma.$executeRawUnsafe(
+            `UPDATE product SET "isLatest"=false, status='Archived', "updatedAt"=NOW() WHERE "productCode"=$1 AND id <> $2`,
+            productCode, newId
+          );
+          }
         }
       }
 
       if (eco.bomId) {
-        const bomRows = await prisma.$queryRawUnsafe<any[]>(
-          `SELECT id,"bomCode",name,"productCode",version,components,notes FROM bill_of_materials WHERE id=$1`, eco.bomId
+        const refRows = await prisma.$queryRawUnsafe<any[]>(
+          `SELECT "bomCode" FROM bill_of_materials WHERE id=$1 LIMIT 1`, eco.bomId
         );
-        if (bomRows?.[0]) {
-          const old = bomRows[0];
+        if (refRows?.[0]) {
+          const bomCode = refRows[0].bomCode;
+          const activeRows = await prisma.$queryRawUnsafe<any[]>(
+            `SELECT id,"bomCode",name,"productCode",version,components,notes FROM bill_of_materials
+             WHERE "bomCode"=$1 AND "isLatest"=true AND status='Active' LIMIT 1`, bomCode
+          );
+          const old = activeRows?.[0] ?? (await prisma.$queryRawUnsafe<any[]>(
+            `SELECT id,"bomCode",name,"productCode",version,components,notes FROM bill_of_materials
+             WHERE "bomCode"=$1 ORDER BY version DESC LIMIT 1`, bomCode
+          ))?.[0];
+          if (old) {
           const newId = randomUUID();
           const newVersion = Number(old.version) + 1;
           const pc = proposedChanges || {};
-          const newComponents = pc.components !== undefined ? pc.components : (Array.isArray(old.components) ? old.components : []);
+          const newComponents = pc.components !== undefined
+            ? (Array.isArray(pc.components) ? pc.components : [])
+            : (Array.isArray(old.components) ? old.components : []);
           const newNotes      = pc.notes !== undefined ? pc.notes : old.notes;
           const newBomName    = pc.bomName !== undefined ? pc.bomName : old.name;
           const diff: Record<string,any> = {};
@@ -815,6 +909,11 @@ app.patch('/api/eco-requests/:id/advance-stage', async (req, res) => {
             JSON.stringify(newComponents), newNotes || null,
             Object.keys(diff).length > 0 ? JSON.stringify(diff) : null
           );
+          await prisma.$executeRawUnsafe(
+            `UPDATE bill_of_materials SET "isLatest"=false, status='Archived', "updatedAt"=NOW() WHERE "bomCode"=$1 AND id <> $2`,
+            old.bomCode, newId
+          );
+          }
         }
       }
     }

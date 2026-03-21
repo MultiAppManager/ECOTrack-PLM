@@ -32,7 +32,8 @@ const BomClient = ({ canWrite, userRole }: Props) => {
     const [isLoading, setIsLoading]     = useState(true)
     const [searchTerm, setSearchTerm]   = useState('')
     const [statusFilter, setStatusFilter] = useState<'All' | 'Active' | 'Archived'>('All')
-    const [showLatestOnly, setShowLatestOnly] = useState(userRole === 'Operations User')
+    /** When true (default), API returns only the current Active + Latest row per BOM — always in sync with DB. */
+    const [showLatestOnly, setShowLatestOnly] = useState(true)
 
     // Modals
     const [showCreate, setShowCreate]   = useState(false)
@@ -51,21 +52,49 @@ const BomClient = ({ canWrite, userRole }: Props) => {
     // Product dropdown for BOM form
     const [productOptions, setProductOptions] = useState<ProductOption[]>([])
 
-    // ─── Fetch BOMs ─────────────────────────────────────────────────────────────
+    const [bomStats, setBomStats] = useState<{ latestActive: number; archivedRows: number }>({
+        latestActive: 0,
+        archivedRows: 0,
+    })
+
+    // ─── Fetch BOMs (live from DB; default = latest active revision only) ────────
     const fetchBoms = useCallback(async () => {
         setIsLoading(true)
         try {
-            const res = await fetch(`${API_BASE}/api/boms`, { credentials: 'include' })
+            const scope = canWrite && !showLatestOnly ? 'all' : 'latest'
+            const url =
+                scope === 'all'
+                    ? `${API_BASE}/api/boms?scope=all`
+                    : `${API_BASE}/api/boms`
+            const res = await fetch(url, { credentials: 'include' })
             if (!res.ok) throw new Error('Failed to fetch BOMs')
             const data: any[] = await res.json()
-            setBoms(data.map(b => ({
-                ...b,
-                components: Array.isArray(b.components) ? b.components : [],
-            })))
+            setBoms(
+                data.map((b) => ({
+                    ...b,
+                    components: Array.isArray(b.components) ? b.components : [],
+                }))
+            )
         } catch {
             toast.error('Failed to load BOMs')
         } finally {
             setIsLoading(false)
+        }
+    }, [API_BASE, canWrite, showLatestOnly])
+
+    const fetchBomStats = useCallback(async () => {
+        try {
+            const res = await fetch(`${API_BASE}/api/boms/stats`, {
+                credentials: 'include',
+            })
+            if (!res.ok) return
+            const data = await res.json()
+            setBomStats({
+                latestActive: Number(data.latestActive) || 0,
+                archivedRows: Number(data.archivedRows) || 0,
+            })
+        } catch {
+            /* silent */
         }
     }, [API_BASE])
 
@@ -76,7 +105,32 @@ const BomClient = ({ canWrite, userRole }: Props) => {
         } catch { /* silent */ }
     }, [API_BASE])
 
-    useEffect(() => { fetchBoms(); fetchProductOptions() }, [fetchBoms, fetchProductOptions])
+    useEffect(() => {
+        fetchBoms()
+        fetchProductOptions()
+        fetchBomStats()
+    }, [fetchBoms, fetchProductOptions, fetchBomStats])
+
+    // Refresh when tab becomes visible + periodic refresh (live data)
+    useEffect(() => {
+        const onVis = () => {
+            if (document.visibilityState === 'visible') {
+                fetchBoms()
+                fetchBomStats()
+            }
+        }
+        document.addEventListener('visibilitychange', onVis)
+        const t = window.setInterval(() => {
+            if (document.visibilityState === 'visible') {
+                fetchBoms()
+                fetchBomStats()
+            }
+        }, 45_000)
+        return () => {
+            document.removeEventListener('visibilitychange', onVis)
+            window.clearInterval(t)
+        }
+    }, [fetchBoms, fetchBomStats])
 
     // ─── Version history ────────────────────────────────────────────────────────
     const loadVersionHistory = async (bomCode: string) => {
@@ -129,7 +183,9 @@ const BomClient = ({ canWrite, userRole }: Props) => {
             const data = await res.json()
             if (!res.ok) throw new Error(data.error || 'Create failed')
             toast.success('BOM created successfully')
-            setShowCreate(false); fetchBoms()
+            setShowCreate(false)
+            fetchBoms()
+            fetchBomStats()
         } catch (e: any) { toast.error(e.message) } finally { setIsSaving(false) }
     }
 
@@ -152,7 +208,9 @@ const BomClient = ({ canWrite, userRole }: Props) => {
             const data = await res.json()
             if (!res.ok) throw new Error(data.error || 'Update failed')
             toast.success('BOM updated')
-            setEditBom(null); fetchBoms()
+            setEditBom(null)
+            fetchBoms()
+            fetchBomStats()
         } catch (e: any) { toast.error(e.message) } finally { setIsSaving(false) }
     }
 
@@ -168,18 +226,26 @@ const BomClient = ({ canWrite, userRole }: Props) => {
             const data = await res.json()
             if (!res.ok) throw new Error(data.error || 'Failed')
             toast.success(`BOM ${newStatus === 'Archived' ? 'archived' : 'restored'}`)
-            setArchiveTarget(null); setDetailBom(null); fetchBoms()
+            setArchiveTarget(null)
+            setDetailBom(null)
+            fetchBoms()
+            fetchBomStats()
         } catch (e: any) { toast.error(e.message) }
     }
 
-    const activeCount   = boms.filter(b => b.status === 'Active' && b.isLatest).length
-    const archivedCount = boms.filter(b => b.status === 'Archived').length
+    const archivedCount = bomStats.archivedRows
+    const totalLatestCount = bomStats.latestActive
 
     return (
         <div className='flex-1 bg-white min-h-screen'>
             {/* Top bar */}
             <div className='px-8 pt-7 pb-4 flex items-center justify-between border-b border-gray-100'>
-                <h1 className='text-2xl font-bold text-[#7c3aed]'>Bills of Materials</h1>
+                <div>
+                    <h1 className='text-2xl font-bold text-[#7c3aed]'>Bills of Materials</h1>
+                    <p className='text-xs text-gray-500 mt-1'>
+                        Live data from the database — shows the current Active revision for each BOM (auto-refreshes).
+                    </p>
+                </div>
                 {canWrite && (
                     <button onClick={openCreate}
                         className='flex items-center gap-2 px-5 py-2 rounded-lg bg-[#7c3aed] hover:bg-[#6d28d9] text-white font-semibold text-sm transition-colors shadow-sm'>
@@ -192,25 +258,49 @@ const BomClient = ({ canWrite, userRole }: Props) => {
                 {/* Stats */}
                 <div className='flex items-center gap-4'>
                     {[
-                        { label: 'Total BOMs', value: boms.filter(b=>b.isLatest).length, color: 'text-[#7c3aed]', f: 'All' as const },
-                        { label: 'Active', value: activeCount, color: 'text-emerald-600', f: 'Active' as const },
-                        { label: 'Archived', value: archivedCount, color: 'text-gray-500', f: 'Archived' as const },
-                    ].map(s => (
+                        {
+                            label: 'Total BOMs',
+                            value: totalLatestCount,
+                            color: 'text-[#7c3aed]',
+                            f: 'All' as const,
+                        },
+                        {
+                            label: 'Active (latest)',
+                            value: totalLatestCount,
+                            color: 'text-emerald-600',
+                            f: 'Active' as const,
+                        },
+                        {
+                            label: 'Archived versions',
+                            value: archivedCount,
+                            color: 'text-gray-500',
+                            f: 'Archived' as const,
+                        },
+                    ].map((s) => (
                         <button key={s.label} onClick={() => setStatusFilter(s.f)}
                             className={`flex items-center gap-3 px-5 py-3 rounded-xl border-2 transition-all duration-150 cursor-pointer text-left ${statusFilter === s.f ? 'border-[#7c3aed] bg-purple-50' : 'border-gray-200 bg-white hover:border-purple-200 hover:bg-purple-50/40'}`}>
                             <span className={`text-2xl font-bold ${s.color}`}>{s.value}</span>
                             <span className='text-xs text-gray-500 font-medium'>{s.label}</span>
                         </button>
                     ))}
-                    <label className='flex items-center gap-2 ml-auto text-sm text-gray-600 cursor-pointer'>
-                        <input type='checkbox' checked={showLatestOnly} onChange={e => setShowLatestOnly(e.target.checked)} className='accent-purple-600 w-4 h-4' />
-                        Latest versions only
-                    </label>
+                    {canWrite && (
+                        <label className='flex items-center gap-2 ml-auto text-sm text-gray-600 cursor-pointer select-none'>
+                            <input
+                                type='checkbox'
+                                checked={showLatestOnly}
+                                onChange={(e) => setShowLatestOnly(e.target.checked)}
+                                className='accent-purple-600 w-4 h-4'
+                            />
+                            <span title='Uncheck to load all stored revisions (incl. archived) for audit'>
+                                Latest active only
+                            </span>
+                        </label>
+                    )}
                 </div>
 
                 {/* Search + filter */}
                 <div className='flex items-center gap-3'>
-                    <input type='text' placeholder='Search Bar' value={searchTerm} onChange={e => setSearchTerm(e.target.value)}
+                    <input type='text' placeholder='Search by name or BOM code…' value={searchTerm} onChange={e => setSearchTerm(e.target.value)}
                         className='flex-1 border-2 border-purple-300 rounded-lg px-4 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-purple-400 transition' />
                     <div className='flex gap-2'>
                         {(['All', 'Active', 'Archived'] as const).map(f => (

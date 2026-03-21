@@ -128,7 +128,12 @@ const EcoDetailClient = ({
               .then(async (r) => {
                 if (!r.ok) return
                 const data = await r.json()
-                setProductVersions(Array.isArray(data) ? data : [])
+                const arr = Array.isArray(data) ? data : []
+                arr.sort(
+                  (a: VersionRow, b: VersionRow) =>
+                    (b.version || 0) - (a.version || 0)
+                )
+                setProductVersions(arr)
               })
               .catch(() => {})
           )
@@ -141,7 +146,12 @@ const EcoDetailClient = ({
               .then(async (r) => {
                 if (!r.ok) return
                 const data = await r.json()
-                setBomVersions(Array.isArray(data) ? data : [])
+                const arr = Array.isArray(data) ? data : []
+                arr.sort(
+                  (a: VersionRow, b: VersionRow) =>
+                    (b.version || 0) - (a.version || 0)
+                )
+                setBomVersions(arr)
               })
               .catch(() => {})
           )
@@ -449,13 +459,14 @@ const EcoDetailClient = ({
                 {selectedEco.ecoType === 'Products' &&
                   (() => {
                     const ch = selectedEco.changes as Record<string, any>
-                    const latestVer = productVersions.find((v) => v.isLatest)
+                    const latestVer =
+                      productVersions.find((v) => v.isLatest) ??
+                      productVersions[0]
                     const vdiff = latestVer?.versionDiff as
                       | Record<string, { from: any; to: any }>
                       | undefined
-                    const archVer =
-                      productVersions.find((v) => !v.isLatest) ??
-                      productVersions[productVersions.length - 1]
+                    // Immediate predecessor (version list is sorted DESC)
+                    const archVer = productVersions[1]
 
                     const fieldMeta: Record<
                       string,
@@ -617,15 +628,21 @@ const EcoDetailClient = ({
                 {selectedEco.ecoType === 'Bills of Materials' &&
                   (() => {
                     const ch = selectedEco.changes as Record<string, any>
-                    const latestBom = bomVersions.find((v) => v.isLatest)
+                    // Sorted DESC: [0]=newest. Compare against immediate predecessor [1], not arbitrary archived row
+                    const latestBom =
+                      bomVersions.find((v) => v.isLatest) ?? bomVersions[0]
+                    const prevBom = bomVersions[1]
                     const vdiff = latestBom?.versionDiff as
                       | Record<string, { from: any; to: any }>
                       | undefined
                     const oldComps: Component[] = (vdiff?.components?.from ??
-                      bomVersions.find((v) => !v.isLatest)?.components ??
+                      prevBom?.components ??
                       []) as Component[]
                     const newComps: Component[] = (vdiff?.components?.to ??
                       ch.components ??
+                      (Array.isArray(latestBom?.components)
+                        ? latestBom.components
+                        : []) ??
                       []) as Component[]
 
                     type CompRow = {

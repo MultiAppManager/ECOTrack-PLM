@@ -11,13 +11,18 @@ type AttachmentMeta = {
     dataUrl?: string
 }
 
+/** Aligns with GET /api/products (and version history rows) */
 type Product = {
     id: string
+    productCode?: string
     name: string
     salePrice: number | string
     costPrice: number | string
     attachments: AttachmentMeta[]
+    /** API field is `version`; we mirror as currentVersion for forms/UI */
+    version?: number
     currentVersion: number
+    isLatest?: boolean
     status: 'Active' | 'Archived'
     createdAt: string
     updatedAt: string
@@ -67,7 +72,18 @@ const ProductsClient = ({ canWrite }: Props) => {
     const [products, setProducts] = useState<Product[]>([])
     const [isLoading, setIsLoading] = useState(true)
     const [searchTerm, setSearchTerm] = useState('')
+    /** Main list is latest-active only; filters apply to that list */
     const [statusFilter, setStatusFilter] = useState<'All' | 'Active' | 'Archived'>('All')
+    const [showLatestOnly, setShowLatestOnly] = useState(true)
+    const [productStats, setProductStats] = useState<{ latestActive: number; archivedRows: number }>({
+        latestActive: 0,
+        archivedRows: 0,
+    })
+    /** Expanded row: show older archived revisions underneath */
+    const [expandedId, setExpandedId] = useState<string | null>(null)
+    const [archivedByProductId, setArchivedByProductId] = useState<Record<string, Product[]>>({})
+    const [loadingHistoryId, setLoadingHistoryId] = useState<string | null>(null)
+    const historyLoadedRef = useRef<Set<string>>(new Set())
 
     // Modals
     const [showCreate, setShowCreate] = useState(false)
@@ -81,25 +97,112 @@ const ProductsClient = ({ canWrite }: Props) => {
 
     const fileInputRef = useRef<HTMLInputElement>(null)
 
-    // ─── Fetch ────────────────────────────────────────────────────────────────
+    const mapProductRow = (p: any): Product => ({
+        ...p,
+        currentVersion: Number(p.version ?? p.currentVersion ?? 1),
+        attachments: Array.isArray(p.attachments) ? p.attachments : [],
+    })
+
+    // ─── Fetch: latest active | all revisions | archived-only (matches filter tab) ─
     const fetchProducts = useCallback(async () => {
         setIsLoading(true)
         try {
-            const res = await fetch(`${API_BASE}/api/products`, { credentials: 'include' })
+            let url = `${API_BASE}/api/products`
+            if (statusFilter === 'Archived') {
+                url = `${API_BASE}/api/products?scope=archived`
+            } else if (canWrite && !showLatestOnly) {
+                url = `${API_BASE}/api/products?scope=all`
+            }
+            const res = await fetch(url, { credentials: 'include' })
             if (!res.ok) throw new Error('Failed to fetch')
             const data: any[] = await res.json()
-            setProducts(data.map(p => ({
-                ...p,
-                attachments: Array.isArray(p.attachments) ? p.attachments : [],
-            })))
+            setProducts(data.map(mapProductRow))
         } catch {
             toast.error('Failed to load products')
         } finally {
             setIsLoading(false)
         }
+    }, [API_BASE, canWrite, showLatestOnly, statusFilter])
+
+    const fetchProductStats = useCallback(async () => {
+        try {
+            const res = await fetch(`${API_BASE}/api/products/stats`, { credentials: 'include' })
+            if (!res.ok) return
+            const data = await res.json()
+            setProductStats({
+                latestActive: Number(data.latestActive) || 0,
+                archivedRows: Number(data.archivedRows) || 0,
+            })
+        } catch {
+            /* silent */
+        }
     }, [API_BASE])
 
-    useEffect(() => { fetchProducts() }, [fetchProducts])
+    useEffect(() => {
+        fetchProducts()
+        fetchProductStats()
+    }, [fetchProducts, fetchProductStats])
+
+    // Archived tab only shows archived rows from API — “latest only” would conflict
+    useEffect(() => {
+        if (statusFilter === 'Archived') setShowLatestOnly(false)
+    }, [statusFilter])
+
+    const loadArchivedVersions = useCallback(
+        async (p: Product) => {
+            if (historyLoadedRef.current.has(p.id)) return
+            historyLoadedRef.current.add(p.id)
+            setLoadingHistoryId(p.id)
+            try {
+                const res = await fetch(
+                    `${API_BASE}/api/products/versions-by-id/${p.id}`,
+                    { credentials: 'include' }
+                )
+                if (!res.ok) throw new Error('Failed to load history')
+                const rows: any[] = await res.json()
+                const mapped = rows.map(mapProductRow)
+                const prev = mapped
+                    .filter((r) => r.isLatest === false || r.status === 'Archived')
+                    .sort((a, b) => Number(b.currentVersion) - Number(a.currentVersion))
+                setArchivedByProductId((prevMap) => ({ ...prevMap, [p.id]: prev }))
+            } catch {
+                historyLoadedRef.current.delete(p.id)
+                toast.error('Could not load version history')
+            } finally {
+                setLoadingHistoryId(null)
+            }
+        },
+        [API_BASE]
+    )
+
+    const toggleExpand = (p: Product) => {
+        if (expandedId === p.id) {
+            setExpandedId(null)
+            return
+        }
+        setExpandedId(p.id)
+        void loadArchivedVersions(p)
+    }
+
+    useEffect(() => {
+        const onVis = () => {
+            if (document.visibilityState === 'visible') {
+                fetchProducts()
+                fetchProductStats()
+            }
+        }
+        document.addEventListener('visibilitychange', onVis)
+        const t = window.setInterval(() => {
+            if (document.visibilityState === 'visible') {
+                fetchProducts()
+                fetchProductStats()
+            }
+        }, 45_000)
+        return () => {
+            document.removeEventListener('visibilitychange', onVis)
+            window.clearInterval(t)
+        }
+    }, [fetchProducts, fetchProductStats])
 
     // ─── Filtered list ────────────────────────────────────────────────────────
     const filtered = products.filter(p => {
@@ -161,6 +264,7 @@ const ProductsClient = ({ canWrite }: Props) => {
             toast.success('Product created successfully')
             setShowCreate(false)
             fetchProducts()
+            fetchProductStats()
         } catch (err: any) {
             toast.error(err.message)
         } finally {
@@ -195,6 +299,7 @@ const ProductsClient = ({ canWrite }: Props) => {
             toast.success('Product updated')
             setEditProduct(null)
             fetchProducts()
+            fetchProductStats()
         } catch (err: any) {
             toast.error(err.message)
         } finally {
@@ -217,19 +322,26 @@ const ProductsClient = ({ canWrite }: Props) => {
             setArchiveTarget(null)
             setDetailProduct(null)
             fetchProducts()
+            fetchProductStats()
         } catch (err: any) {
             toast.error(err.message)
         }
     }
 
-    const activeCount = products.filter(p => p.status === 'Active').length
-    const archivedCount = products.filter(p => p.status === 'Archived').length
+    const totalLatest = productStats.latestActive
+    const archivedTotal = productStats.archivedRows
 
     return (
         <div className='flex-1 bg-white min-h-screen'>
             {/* ── Top Bar ── */}
             <div className='px-8 pt-7 pb-4 flex items-center justify-between gap-4 border-b border-gray-100'>
-                <h1 className='text-2xl font-bold text-[#7c3aed]'>Product Master</h1>
+                <div>
+                    <h1 className='text-2xl font-bold text-[#7c3aed]'>Product Master</h1>
+                    <p className='text-xs text-gray-500 mt-1'>
+                        Live data — list shows the current <strong>Active</strong> revision per product. Click a row to
+                        expand archived versions.
+                    </p>
+                </div>
                 {canWrite && (
                     <button
                         id='btn-new-product'
@@ -244,12 +356,30 @@ const ProductsClient = ({ canWrite }: Props) => {
             <div className='px-8 py-6 space-y-5'>
 
                 {/* ── Stats Row ── */}
-                <div className='flex items-center gap-4'>
+                <div className='flex items-center gap-4 flex-wrap'>
                     {[
-                        { label: 'Total Products', value: products.length, onClick: () => setStatusFilter('All'), active: statusFilter === 'All', color: 'text-[#7c3aed]' },
-                        { label: 'Active', value: activeCount, onClick: () => setStatusFilter('Active'), active: statusFilter === 'Active', color: 'text-emerald-600' },
-                        { label: 'Archived', value: archivedCount, onClick: () => setStatusFilter('Archived'), active: statusFilter === 'Archived', color: 'text-gray-500' },
-                    ].map(s => (
+                        {
+                            label: 'Total Products',
+                            value: totalLatest,
+                            onClick: () => setStatusFilter('All'),
+                            active: statusFilter === 'All',
+                            color: 'text-[#7c3aed]',
+                        },
+                        {
+                            label: 'Active (latest)',
+                            value: totalLatest,
+                            onClick: () => setStatusFilter('Active'),
+                            active: statusFilter === 'Active',
+                            color: 'text-emerald-600',
+                        },
+                        {
+                            label: 'Archived versions',
+                            value: archivedTotal,
+                            onClick: () => setStatusFilter('Archived'),
+                            active: statusFilter === 'Archived',
+                            color: 'text-gray-500',
+                        },
+                    ].map((s) => (
                         <button
                             key={s.label}
                             onClick={s.onClick}
@@ -267,15 +397,31 @@ const ProductsClient = ({ canWrite }: Props) => {
                 </div>
 
                 {/* ── Search + Filter ── */}
-                <div className='flex items-center gap-3'>
+                <div className='flex items-center gap-3 flex-wrap'>
                     <input
                         id='product-search'
                         type='text'
-                        placeholder='Search Bar'
+                        placeholder='Search by product name…'
                         value={searchTerm}
                         onChange={e => setSearchTerm(e.target.value)}
                         className='flex-1 border-2 border-purple-300 rounded-lg px-4 py-2 text-sm text-gray-700 placeholder:text-gray-400 focus:outline-none focus:ring-2 focus:ring-purple-400 focus:border-purple-400 transition'
                     />
+                    {canWrite && statusFilter !== 'Archived' && (
+                        <label className='flex items-center gap-2 text-sm text-gray-600 cursor-pointer select-none whitespace-nowrap'>
+                            <input
+                                type='checkbox'
+                                checked={showLatestOnly}
+                                onChange={(e) => setShowLatestOnly(e.target.checked)}
+                                className='accent-purple-600 w-4 h-4'
+                            />
+                            <span title='Uncheck to list all stored revisions (flat list)'>Latest active only</span>
+                        </label>
+                    )}
+                    {statusFilter === 'Archived' && (
+                        <span className='text-xs text-gray-500 italic'>
+                            Showing archived revisions only
+                        </span>
+                    )}
                     <div className='flex items-center gap-2'>
                         {(['All', 'Active', 'Archived'] as const).map(f => (
                             <button
@@ -303,7 +449,6 @@ const ProductsClient = ({ canWrite }: Props) => {
                                 <th className='text-left px-4 py-3.5 text-sm font-bold text-[#7c3aed]'>Sale Price</th>
                                 <th className='text-left px-4 py-3.5 text-sm font-bold text-[#7c3aed]'>Cost Price</th>
                                 <th className='text-center px-4 py-3.5 text-sm font-bold text-[#7c3aed]'>Version</th>
-                                <th className='text-center px-4 py-3.5 text-sm font-bold text-[#7c3aed]'>Attachments</th>
                                 <th className='text-center px-4 py-3.5 text-sm font-bold text-[#7c3aed]'>Status</th>
                                 <th className='text-center px-4 py-3.5 text-sm font-bold text-[#7c3aed]'>Actions</th>
                             </tr>
@@ -311,7 +456,7 @@ const ProductsClient = ({ canWrite }: Props) => {
                         <tbody>
                             {isLoading ? (
                                 <tr>
-                                    <td colSpan={7} className='py-16 text-center'>
+                                    <td colSpan={6} className='py-16 text-center'>
                                         <div className='flex flex-col items-center gap-3'>
                                             <div className='w-7 h-7 border-2 border-purple-200 border-t-[#7c3aed] rounded-full animate-spin' />
                                             <p className='text-gray-400 text-sm'>Loading products…</p>
@@ -320,7 +465,7 @@ const ProductsClient = ({ canWrite }: Props) => {
                                 </tr>
                             ) : filtered.length === 0 ? (
                                 <tr>
-                                    <td colSpan={7} className='py-16 text-center'>
+                                    <td colSpan={6} className='py-16 text-center'>
                                         <p className='text-gray-400 text-sm'>No products found.</p>
                                         {canWrite && searchTerm === '' && statusFilter === 'All' && (
                                             <button onClick={openCreate} className='mt-3 text-[#7c3aed] text-sm font-semibold hover:underline'>
@@ -330,72 +475,146 @@ const ProductsClient = ({ canWrite }: Props) => {
                                     </td>
                                 </tr>
                             ) : (
-                                filtered.map((p) => (
-                                    <tr
-                                        key={p.id}
-                                        className={[
-                                            'border-b border-gray-100 transition-colors group',
-                                            p.status === 'Archived' ? 'bg-gray-50' : 'hover:bg-purple-50/30'
-                                        ].join(' ')}
-                                    >
-                                        {/* Name */}
-                                        <td className='px-6 py-3.5'>
-                                            <button
-                                                onClick={() => setDetailProduct(p)}
+                                filtered.map((p) => {
+                                    const archivedRows = archivedByProductId[p.id] ?? []
+                                    const isOpen = expandedId === p.id
+                                    const loadingHist = loadingHistoryId === p.id
+                                    return (
+                                        <React.Fragment key={p.id}>
+                                            <tr
                                                 className={[
-                                                    'text-sm font-medium text-left hover:underline transition-colors',
-                                                    p.status === 'Archived'
-                                                        ? 'text-gray-400 line-through decoration-gray-300'
-                                                        : 'text-gray-800 hover:text-[#7c3aed]'
+                                                    'border-b border-gray-100 transition-colors group',
+                                                    p.status === 'Archived' ? 'bg-gray-50' : 'hover:bg-purple-50/30',
                                                 ].join(' ')}
                                             >
-                                                {p.name}
-                                            </button>
-                                        </td>
-                                        {/* Sale Price */}
-                                        <td className='px-4 py-3.5 text-sm text-gray-700'>{fmtCurrency(p.salePrice)}</td>
-                                        {/* Cost Price */}
-                                        <td className='px-4 py-3.5 text-sm text-gray-700'>{fmtCurrency(p.costPrice)}</td>
-                                        {/* Version */}
-                                        <td className='px-4 py-3.5 text-center'>
-                                            <span className='inline-flex items-center px-2.5 py-0.5 rounded-full text-xs font-bold bg-purple-100 text-[#7c3aed] border border-purple-200'>
-                                                v{p.currentVersion}
-                                            </span>
-                                        </td>
-                                        {/* Attachments */}
-                                        <td className='px-4 py-3.5 text-center'>
-                                            {p.attachments.length > 0 ? (
-                                                <span className='inline-flex items-center gap-1 text-xs text-indigo-600 font-semibold'>
-                                                    📎 {p.attachments.length}
-                                                </span>
-                                            ) : (
-                                                <span className='text-gray-300 text-xs'>—</span>
+                                                <td className='px-4 py-3.5'>
+                                                    <div className='flex items-start gap-2'>
+                                                        <button
+                                                            type='button'
+                                                            onClick={() => toggleExpand(p)}
+                                                            className='mt-0.5 flex h-7 w-7 flex-shrink-0 items-center justify-center rounded-lg border border-purple-200 bg-white text-purple-700 hover:bg-purple-50'
+                                                            title='Show archived versions'
+                                                            aria-expanded={isOpen}
+                                                        >
+                                                            <span
+                                                                className={`inline-block text-xs transition-transform ${isOpen ? 'rotate-90' : ''}`}
+                                                            >
+                                                                ▸
+                                                            </span>
+                                                        </button>
+                                                        <div className='min-w-0 flex-1'>
+                                                            <button
+                                                                type='button'
+                                                                onClick={() => toggleExpand(p)}
+                                                                className={[
+                                                                    'text-sm font-medium text-left hover:underline transition-colors block',
+                                                                    p.status === 'Archived'
+                                                                        ? 'text-gray-400 line-through decoration-gray-300'
+                                                                        : 'text-gray-800 hover:text-[#7c3aed]',
+                                                                ].join(' ')}
+                                                            >
+                                                                {p.name}
+                                                            </button>
+                                                            {p.productCode && (
+                                                                <p className='text-[10px] text-gray-400 font-mono mt-0.5'>
+                                                                    {p.productCode}
+                                                                </p>
+                                                            )}
+                                                        </div>
+                                                    </div>
+                                                </td>
+                                                <td className='px-4 py-3.5 text-sm text-gray-700'>
+                                                    {fmtCurrency(p.salePrice)}
+                                                </td>
+                                                <td className='px-4 py-3.5 text-sm text-gray-700'>
+                                                    {fmtCurrency(p.costPrice)}
+                                                </td>
+                                                <td className='px-4 py-3.5 text-center'>
+                                                    <span className='inline-flex items-center px-2.5 py-0.5 rounded-full text-xs font-bold bg-purple-100 text-[#7c3aed] border border-purple-200'>
+                                                        v{p.currentVersion}
+                                                    </span>
+                                                </td>
+                                                <td className='px-4 py-3.5 text-center'>
+                                                    <span
+                                                        className={[
+                                                            'inline-flex items-center px-3 py-0.5 rounded-full text-xs font-semibold border',
+                                                            p.status === 'Active'
+                                                                ? 'bg-green-50 text-green-700 border-green-200'
+                                                                : 'bg-gray-100 text-gray-500 border-gray-300',
+                                                        ].join(' ')}
+                                                    >
+                                                        {p.status}
+                                                    </span>
+                                                </td>
+                                                <td className='px-4 py-3.5'>
+                                                    <div className='flex items-center justify-center'>
+                                                        <button
+                                                            type='button'
+                                                            onClick={() => setDetailProduct(p)}
+                                                            className='px-3 py-1 rounded-lg text-xs font-semibold border border-purple-300 text-[#7c3aed] hover:bg-[#7c3aed] hover:text-white hover:border-[#7c3aed] transition-all duration-150'
+                                                        >
+                                                            View
+                                                        </button>
+                                                    </div>
+                                                </td>
+                                            </tr>
+                                            {isOpen && loadingHist && (
+                                                <tr className='bg-purple-50/40'>
+                                                    <td
+                                                        colSpan={6}
+                                                        className='py-3 text-center text-xs text-gray-500'
+                                                    >
+                                                        Loading version history…
+                                                    </td>
+                                                </tr>
                                             )}
-                                        </td>
-                                        {/* Status */}
-                                        <td className='px-4 py-3.5 text-center'>
-                                            <span className={[
-                                                'inline-flex items-center px-3 py-0.5 rounded-full text-xs font-semibold border',
-                                                p.status === 'Active'
-                                                    ? 'bg-green-50 text-green-700 border-green-200'
-                                                    : 'bg-gray-100 text-gray-500 border-gray-300'
-                                            ].join(' ')}>
-                                                {p.status}
-                                            </span>
-                                        </td>
-                                        {/* Actions */}
-                                        <td className='px-4 py-3.5'>
-                                            <div className='flex items-center justify-center'>
-                                                <button
-                                                    onClick={() => setDetailProduct(p)}
-                                                    className='px-3 py-1 rounded-lg text-xs font-semibold border border-purple-300 text-[#7c3aed] hover:bg-[#7c3aed] hover:text-white hover:border-[#7c3aed] transition-all duration-150'
-                                                >
-                                                    View
-                                                </button>
-                                            </div>
-                                        </td>
-                                    </tr>
-                                ))
+                                            {isOpen &&
+                                                !loadingHist &&
+                                                archivedRows.length === 0 && (
+                                                    <tr className='bg-gray-50/50'>
+                                                        <td
+                                                            colSpan={6}
+                                                            className='py-2.5 pl-14 text-xs text-gray-400 italic'
+                                                        >
+                                                            No older archived revisions for this product.
+                                                        </td>
+                                                    </tr>
+                                                )}
+                                            {isOpen && !loadingHist && archivedRows.length > 0 && (
+                                                <tr className='border-b border-gray-100 bg-slate-50/95'>
+                                                    <td colSpan={6} className='px-4 py-3 pl-14 align-top'>
+                                                        <p className='text-[10px] font-bold uppercase tracking-wide text-gray-500 mb-2'>
+                                                            Previous archived revisions
+                                                        </p>
+                                                        <ul className='space-y-1.5 max-w-xl'>
+                                                            {archivedRows.map((pv) => (
+                                                                <li
+                                                                    key={pv.id}
+                                                                    className='flex flex-wrap items-center justify-between gap-2 rounded-lg border border-gray-200 bg-white px-3 py-2 text-xs text-gray-700'
+                                                                >
+                                                                    <span className='font-mono font-semibold text-[#7c3aed]'>
+                                                                        v{pv.currentVersion}
+                                                                    </span>
+                                                                    <span className='text-gray-500'>
+                                                                        Sale {fmtCurrency(pv.salePrice)} · Cost{' '}
+                                                                        {fmtCurrency(pv.costPrice)}
+                                                                    </span>
+                                                                    <button
+                                                                        type='button'
+                                                                        onClick={() => setDetailProduct(pv)}
+                                                                        className='shrink-0 rounded-md border border-purple-200 px-2 py-0.5 text-[10px] font-semibold text-[#7c3aed] hover:bg-purple-50'
+                                                                    >
+                                                                        View
+                                                                    </button>
+                                                                </li>
+                                                            ))}
+                                                        </ul>
+                                                    </td>
+                                                </tr>
+                                            )}
+                                        </React.Fragment>
+                                    )
+                                })
                             )}
                         </tbody>
                     </table>
