@@ -66,14 +66,15 @@ function fileIcon(type: string) {
 // ─── Main Component ───────────────────────────────────────────────────────────
 type Props = { userRole: string; canWrite: boolean }
 
-const ProductsClient = ({ canWrite }: Props) => {
+const ProductsClient = ({ canWrite, userRole }: Props) => {
+    const isOperationsUser = userRole === 'Operations User'
     const API_BASE = process.env.NEXT_PUBLIC_API_URL || 'http://localhost:5000'
 
     const [products, setProducts] = useState<Product[]>([])
     const [isLoading, setIsLoading] = useState(true)
     const [searchTerm, setSearchTerm] = useState('')
     /** Main list is latest-active only; filters apply to that list */
-    const [statusFilter, setStatusFilter] = useState<'All' | 'Active' | 'Archived'>('All')
+    const [statusFilter, setStatusFilter] = useState<'All' | 'Active' | 'Archived'>(isOperationsUser ? 'Active' : 'All')
     const [showLatestOnly, setShowLatestOnly] = useState(true)
     const [productStats, setProductStats] = useState<{ latestActive: number; archivedRows: number }>({
         latestActive: 0,
@@ -338,8 +339,8 @@ const ProductsClient = ({ canWrite }: Props) => {
                 <div>
                     <h1 className='text-2xl font-bold text-[#7c3aed]'>Product Master</h1>
                     <p className='text-xs text-gray-500 mt-1'>
-                        Live data — list shows the current <strong>Active</strong> revision per product. Click a row to
-                        expand archived versions.
+                        Live data — list shows the current <strong>Active</strong> revision per product.
+                        {!isOperationsUser && ' Click a row to expand archived versions.'}
                     </p>
                 </div>
                 {canWrite && (
@@ -358,7 +359,7 @@ const ProductsClient = ({ canWrite }: Props) => {
                 {/* ── Stats Row ── */}
                 <div className='flex items-center gap-4 flex-wrap'>
                     {[
-                        {
+                        !isOperationsUser && {
                             label: 'Total Products',
                             value: totalLatest,
                             onClick: () => setStatusFilter('All'),
@@ -372,14 +373,14 @@ const ProductsClient = ({ canWrite }: Props) => {
                             active: statusFilter === 'Active',
                             color: 'text-emerald-600',
                         },
-                        {
+                        !isOperationsUser && {
                             label: 'Archived versions',
                             value: archivedTotal,
                             onClick: () => setStatusFilter('Archived'),
                             active: statusFilter === 'Archived',
                             color: 'text-gray-500',
                         },
-                    ].map((s) => (
+                    ].filter(Boolean).map((s: any) => (
                         <button
                             key={s.label}
                             onClick={s.onClick}
@@ -423,7 +424,9 @@ const ProductsClient = ({ canWrite }: Props) => {
                         </span>
                     )}
                     <div className='flex items-center gap-2'>
-                        {(['All', 'Active', 'Archived'] as const).map(f => (
+                        {(['All', 'Active', 'Archived'] as const)
+                            .filter(f => !isOperationsUser || f === 'Active')
+                            .map(f => (
                             <button
                                 key={f}
                                 onClick={() => setStatusFilter(f)}
@@ -489,6 +492,7 @@ const ProductsClient = ({ canWrite }: Props) => {
                                             >
                                                 <td className='px-4 py-3.5'>
                                                     <div className='flex items-start gap-2'>
+                                                        {!isOperationsUser && (
                                                         <button
                                                             type='button'
                                                             onClick={() => toggleExpand(p)}
@@ -502,6 +506,7 @@ const ProductsClient = ({ canWrite }: Props) => {
                                                                 ▸
                                                             </span>
                                                         </button>
+                                                        )}
                                                         <div className='min-w-0 flex-1'>
                                                             <button
                                                                 type='button'
