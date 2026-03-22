@@ -1,17 +1,35 @@
-# 🏭 ECOTrack-PLM: Engineering Change Order System
+<!-- 🚀 HERO BANNER -->
+<p align="center">
+  <img src="https://raw.githubusercontent.com/your-username/your-repo/main/assets/banner.png" alt="ECOTrack-PLM Banner" width="100%" />
+</p>
 
-![Hackathon](https://img.shields.io/badge/Built%20For-Odoo%20Hackathon%202026-orange?style=for-the-badge)
+<h1 align="center">🏭 ECOTrack-PLM</h1>
+<h3 align="center">Enterprise Engineering Change Order Management System</h3>
+
+<p align="center">
+  <img src="https://img.shields.io/badge/Built%20For-Odoo%20Hackathon%202026-orange?style=for-the-badge"/>
+  <img src="https://img.shields.io/badge/Status-Production%20Ready-success?style=for-the-badge"/>
+  <img src="https://img.shields.io/badge/Backend-Express.js-blue?style=for-the-badge"/>
+  <img src="https://img.shields.io/badge/Frontend-Next.js-black?style=for-the-badge"/>
+</p>
+
+---
 
 ## 📋 What is ECOTrack-PLM?
 
-**ECOTrack-PLM** is a **Product Lifecycle Management system** for managing Engineering Change Orders (ECOs) in manufacturing. It ensures controlled, versioned, and approval-driven changes to Products and Bills of Materials (BoMs).
+**ECOTrack-PLM** is a **Product Lifecycle Management system** for managing Engineering Change Orders (ECOs) in manufacturing. It ensures **controlled, versioned, and approval-driven changes** to Products and Bills of Materials (BoMs).
 
-### Problem Solved
-- ✅ **Version Control**: All changes create new versions; old versions archived
-- ✅ **Approval Workflows**: Multi-stage ECOs with role-based access control
-- ✅ **Change Tracking**: Side-by-side comparison before approval
-- ✅ **Audit Trail**: Complete traceability of all actions
-- ✅ **Safe Operations**: Only approved changes reach live systems
+> 💡 Designed to bring **enterprise-grade governance** to engineering workflows.
+
+---
+
+## 🚨 Problem Solved
+
+- ✅ **Version Control** – All changes create new versions; old versions archived  
+- ✅ **Approval Workflows** – Multi-stage ECOs with role-based access control  
+- ✅ **Change Tracking** – Side-by-side comparison before approval  
+- ✅ **Audit Trail** – Complete traceability of all actions  
+- ✅ **Safe Operations** – Only approved changes reach live systems  
 
 ---
 
@@ -37,33 +55,35 @@
 - Zod (validation)
 
 ### **Database**
-- PostgreSQL 16+
-- Prisma migrations
+- PostgreSQL 16+  
+- Prisma migrations  
 
 ### **DevOps**
-- Node.js 22.x LTS
-- npm 10.x
+- Node.js 22.x LTS  
+- npm 10.x  
 
 ---
 
 ## 🎯 Key Features
 
-1. **Product Master** - Version-controlled products with pricing & attachments
-2. **Bill of Materials** - Component tracking with operations & work centers
-3. **Engineering Change Orders** - Create ECOs for Product or BoM changes
-4. **Approval Workflows** - Multi-stage approvals with role validation
-5. **Change Comparison** - Visual diff (before/after) with indicators
-6. **Audit Trail** - Complete logging of all actions
-7. **Reports** - ECO status, version history, change analysis
+✨ **Enterprise-grade capabilities built for scale**
+
+1. **Product Master** – Version-controlled products with pricing & attachments  
+2. **Bill of Materials** – Component tracking with operations & work centers  
+3. **Engineering Change Orders** – Create ECOs for Product or BoM changes  
+4. **Approval Workflows** – Multi-stage approvals with role validation  
+5. **Change Comparison** – Visual diff (before/after) with indicators  
+6. **Audit Trail** – Complete logging of all actions  
+7. **Reports** – ECO status, version history, change analysis  
 
 ---
 
 ## 🚀 Quick Start
 
 ### Prerequisites
-- Node.js 22.x
-- npm 10.x
-- PostgreSQL 16+
+- Node.js 22.x  
+- npm 10.x  
+- PostgreSQL 16+  
 
 ### Setup
 
