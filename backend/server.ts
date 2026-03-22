@@ -340,7 +340,7 @@ app.patch('/api/products/:id/status', async (req, res) => {
     if (status !== 'Active' && status !== 'Archived') return res.status(400).json({ error: 'Status must be Active or Archived' });
 
     const rows = await prisma.$queryRawUnsafe<any[]>(`
-      UPDATE product SET status=$1, "updatedAt"=NOW() WHERE id=$2
+      UPDATE product SET status=$1::"ProductStatus", "updatedAt"=NOW() WHERE id=$2
       RETURNING id, "productCode", name, "salePrice", "costPrice", attachments, version, status, "isLatest", "createdAt", "updatedAt"
     `, status, req.params.id);
     if (!rows?.[0]) return res.status(404).json({ error: 'Product not found' });
@@ -599,7 +599,7 @@ app.post('/api/eco-requests', async (req, res) => {
     await prisma.$executeRawUnsafe(`
       INSERT INTO eco_request (id, "ecoCode", title, "ecoType", product, bom, "productId", "bomId",
         "requestedById", "requestedBy", "effectiveDate", "versionUpdate", status, changes, "stageId", "stageStatus", "createdAt", "updatedAt")
-      VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,$14::json,$15,$16,NOW(),NOW())
+      VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13::"EcoRequestStatus",$14::json,$15,$16,NOW(),NOW())
     `,
       id, ecoCode, String(title), String(ecoType), productName, bomName,
       productId || null, bomId || null,
@@ -755,7 +755,7 @@ app.patch('/api/eco-requests/:id/status', async (req, res) => {
 
     // Update ECO status
     const updated = await prisma.$queryRawUnsafe<any[]>(`
-      UPDATE eco_request SET status=$1, "updatedAt"=NOW() WHERE id=$2
+      UPDATE eco_request SET status=$1::"EcoRequestStatus", "updatedAt"=NOW() WHERE id=$2
       RETURNING *
     `, String(status), req.params.id);
 
@@ -816,7 +816,7 @@ app.patch('/api/eco-requests/:id/advance-stage', async (req, res) => {
 
     const updated = await prisma.$queryRawUnsafe<any[]>(`
       UPDATE eco_request
-      SET "stageId"=$1, "stageStatus"=$2, status=$3, "updatedAt"=NOW()
+      SET "stageId"=$1, "stageStatus"=$2, status=$3::"EcoRequestStatus", "updatedAt"=NOW()
       WHERE id=$4
       RETURNING *
     `, nextStage.id, newStageStatus, newStatus, req.params.id);
@@ -1114,7 +1114,7 @@ async function seedDemoData() {
       }
       await prisma.$executeRawUnsafe(
         `INSERT INTO product (id,"productCode",name,"salePrice","costPrice",attachments,version,status,"isLatest","createdAt","updatedAt")
-         VALUES ($1,$2,$3,$4,$5,'[]'::json,$6,$7,true,NOW(),NOW())`,
+         VALUES ($1,$2,$3,$4,$5,'[]'::json,$6,$7::"ProductStatus",true,NOW(),NOW())`,
         randomUUID(), code, p.name, p.sp, p.cp, p.v, p.archived ? 'Archived' : 'Active'
       );
     }
